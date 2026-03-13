@@ -70,8 +70,8 @@ public class EventApplicationService implements IngestEventUseCase, QueryEventUs
             } catch (Exception ex) {
                 // Remove temporary record so main consumer retry can execute the logic again.
                 eventStorePort.deleteByEventId(event.eventId());
-                log.warn("Event processing failed and temporary record is removed. eventId={}, reason={}",
-                        event.eventId(), ex.getMessage());
+                // log.warn("Event processing failed and temporary record is removed. eventId={}, reason={}",
+                //         event.eventId(), ex.getMessage());
                 throw ex;
             }
         }

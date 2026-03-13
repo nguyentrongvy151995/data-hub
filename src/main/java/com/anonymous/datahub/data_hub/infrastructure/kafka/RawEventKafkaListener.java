@@ -92,9 +92,10 @@ public class RawEventKafkaListener {
             try {
                 parsedEvent = objectMapper.readValue(message, KafkaEventDto.class);
                 validate(parsedEvent);
-                simulateRandomFailureIfEnabled(parsedEvent, attempt, totalAttempts, partition, offset);
+                // simulateRandomFailureIfEnabled(parsedEvent, attempt, totalAttempts, partition, offset);
                 EventIngestionResult result = ingestEventUseCase.ingest(parsedEvent);
 
+                // commit offset
                 acknowledgment.acknowledge();
                 log.info(
                         "[KAFKA][MAIN-SUCCESS] thread={} eventId={} result={} attempt={}/{} partition={} offset={}",

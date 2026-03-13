@@ -66,8 +66,8 @@ public class RawEventKafkaProducerScheduler {
         long firstSeq = sequence.get() + 1;
         int produced = 0;
         for (int i = 0; i < batchSize && sequence.get() < maxEvents; i++) {
-            publishOne(i);
-            produced++;
+            // publishOne(i);
+            // produced++;
         }
 
         if (produced == 0) {
