@@ -22,6 +22,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 @Component
@@ -39,6 +40,8 @@ public class RawEventKafkaListener {
     private final int maxRetryAttempts;
     private final long retryBackoffMs;
     private final long sendTimeoutMs;
+    private final boolean randomFailureEnabled;
+    private final int randomFailurePercent;
 
     public RawEventKafkaListener(
             ObjectMapper objectMapper,
@@ -49,7 +52,9 @@ public class RawEventKafkaListener {
             @Value("${app.kafka.topic.raw-events-parking-lot:${app.kafka.topic.raw-events}.parking-lot}") String parkingLotTopic,
             @Value("${app.kafka.retry.max-attempts:2}") int maxRetryAttempts,
             @Value("${app.kafka.retry.backoff-ms:1000}") long retryBackoffMs,
-            @Value("${app.kafka.producer.send-timeout-ms:5000}") long sendTimeoutMs
+            @Value("${app.kafka.producer.send-timeout-ms:5000}") long sendTimeoutMs,
+            @Value("${app.kafka.test.random-failure-enabled:false}") boolean randomFailureEnabled,
+            @Value("${app.kafka.test.random-failure-percent:35}") int randomFailurePercent
     ) {
         this.objectMapper = objectMapper;
         this.validator = validator;
@@ -60,6 +65,8 @@ public class RawEventKafkaListener {
         this.maxRetryAttempts = maxRetryAttempts;
         this.retryBackoffMs = retryBackoffMs;
         this.sendTimeoutMs = sendTimeoutMs;
+        this.randomFailureEnabled = randomFailureEnabled;
+        this.randomFailurePercent = Math.max(0, Math.min(100, randomFailurePercent));
     }
 
     @KafkaListener(
@@ -85,6 +92,7 @@ public class RawEventKafkaListener {
             try {
                 parsedEvent = objectMapper.readValue(message, KafkaEventDto.class);
                 validate(parsedEvent);
+                simulateRandomFailureIfEnabled(parsedEvent, attempt, totalAttempts, partition, offset);
                 EventIngestionResult result = ingestEventUseCase.ingest(parsedEvent);
 
                 acknowledgment.acknowledge();
@@ -252,6 +260,29 @@ public class RawEventKafkaListener {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Retry backoff interrupted", ex);
+        }
+    }
+
+    private void simulateRandomFailureIfEnabled(
+            KafkaEventDto eventDto,
+            int attempt,
+            int totalAttempts,
+            int partition,
+            long offset
+    ) {
+        if (!randomFailureEnabled || randomFailurePercent <= 0) {
+            return;
+        }
+        int roll = ThreadLocalRandom.current().nextInt(100);
+        if (roll < randomFailurePercent) {
+            throw new IllegalStateException(
+                    "Simulated random failure for testing DLT/Parking-Lot. eventId=" + eventDto.eventId()
+                            + ", attempt=" + attempt + "/" + totalAttempts
+                            + ", partition=" + partition
+                            + ", offset=" + offset
+                            + ", roll=" + roll
+                            + ", threshold=" + randomFailurePercent
+            );
         }
     }
 

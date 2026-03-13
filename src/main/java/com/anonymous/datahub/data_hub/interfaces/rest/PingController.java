@@ -4,9 +4,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-public class TestController {
-    @GetMapping("/test")
+public class PingController {
+    @GetMapping("/ping")
     public String home() {
-        return "Demo application is running111111222";
+        return "Ping application is running";
     }
 }
