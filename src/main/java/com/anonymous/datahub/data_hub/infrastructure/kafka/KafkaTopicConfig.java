@@ -20,4 +20,28 @@ public class KafkaTopicConfig {
                 .replicas(replicas)
                 .build();
     }
+
+    @Bean
+    public NewTopic rawEventsDltTopic(
+            @Value("${app.kafka.topic.raw-events-dlt:${app.kafka.topic.raw-events}.DLT}") String topicName,
+            @Value("${app.kafka.topic.raw-events.partitions:3}") int partitions,
+            @Value("${app.kafka.topic.raw-events.replicas:1}") short replicas
+    ) {
+        return TopicBuilder.name(topicName)
+                .partitions(partitions)
+                .replicas(replicas)
+                .build();
+    }
+
+    @Bean
+    public NewTopic rawEventsParkingLotTopic(
+            @Value("${app.kafka.topic.raw-events-parking-lot:${app.kafka.topic.raw-events}.parking-lot}") String topicName,
+            @Value("${app.kafka.topic.raw-events.partitions:3}") int partitions,
+            @Value("${app.kafka.topic.raw-events.replicas:1}") short replicas
+    ) {
+        return TopicBuilder.name(topicName)
+                .partitions(partitions)
+                .replicas(replicas)
+                .build();
+    }
 }

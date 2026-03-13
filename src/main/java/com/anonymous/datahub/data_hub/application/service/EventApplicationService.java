@@ -68,13 +68,24 @@ public class EventApplicationService implements IngestEventUseCase, QueryEventUs
                 eventStorePort.updateStatusByEventId(event.eventId(), EventProcessingStatus.SUCCESS);
                 return EventIngestionResult.STORED;
             } catch (Exception ex) {
-                eventStorePort.updateStatusByEventId(event.eventId(), EventProcessingStatus.FAILED);
-                log.warn("Event marked as FAILED. eventId={}, reason={}", event.eventId(), ex.getMessage());
+                // Remove temporary record so main consumer retry can execute the logic again.
+                eventStorePort.deleteByEventId(event.eventId());
+                log.warn("Event processing failed and temporary record is removed. eventId={}, reason={}",
+                        event.eventId(), ex.getMessage());
                 throw ex;
             }
         }
 
         return EventIngestionResult.DUPLICATE;
+    }
+
+    @Override
+    public void markFailedAfterRetries(KafkaEventDto eventDto) {
+        IncomingEvent event = incomingEventMapper.toDomain(eventDto, Instant.now(clock));
+        EventPersistenceOutcome outcome = eventStorePort.saveIfAbsent(event);
+        eventStorePort.updateStatusByEventId(event.eventId(), EventProcessingStatus.FAILED);
+        log.error("Event marked as FAILED after retries exhausted. eventId={}, persistenceOutcome={}",
+                event.eventId(), outcome);
     }
 
     @Override
