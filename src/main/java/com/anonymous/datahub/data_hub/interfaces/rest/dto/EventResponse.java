@@ -4,9 +4,10 @@ import java.time.Instant;
 
 public record EventResponse(
         String eventId,
+        String eventType,
         String sourceSystem,
         String payload,
-        Instant occurredAt,
-        Instant receivedAt
+        Instant createdAt,
+        Instant updatedAt
 ) {
 }

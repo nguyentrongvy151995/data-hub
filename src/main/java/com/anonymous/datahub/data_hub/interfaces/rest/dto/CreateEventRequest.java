@@ -9,7 +9,7 @@ import java.time.Instant;
 public record CreateEventRequest(
         @NotBlank String eventId,
         @NotBlank String sourceSystem,
-        @NotNull Instant occurredAt,
+        @NotNull Instant createdAt,
         @NotNull JsonNode payload
 ) {
 }

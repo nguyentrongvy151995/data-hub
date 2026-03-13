@@ -1,6 +1,7 @@
 package com.anonymous.datahub.data_hub.domain.port;
 
 import com.anonymous.datahub.data_hub.domain.model.EventPersistenceOutcome;
+import com.anonymous.datahub.data_hub.domain.model.EventProcessingStatus;
 import com.anonymous.datahub.data_hub.domain.model.IncomingEvent;
 import com.anonymous.datahub.data_hub.domain.model.SourceEventVolume;
 
@@ -12,6 +13,8 @@ public interface EventStorePort {
 
     EventPersistenceOutcome saveIfAbsent(IncomingEvent event);
 
+    void updateStatusByEventId(String eventId, EventProcessingStatus status);
+
     Optional<IncomingEvent> findByEventId(String eventId);
 
     List<IncomingEvent> findAll();
@@ -20,7 +23,7 @@ public interface EventStorePort {
 
     void deleteByEventId(String eventId);
 
-    long countReceivedBetween(Instant from, Instant to);
+    long countUpdatedBetween(Instant from, Instant to);
 
     List<SourceEventVolume> summarizeBySourceBetween(Instant from, Instant to);
 }

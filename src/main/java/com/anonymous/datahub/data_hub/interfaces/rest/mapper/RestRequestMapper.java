@@ -14,7 +14,7 @@ public class RestRequestMapper {
                 request.eventId(),
                 request.sourceSystem(),
                 request.payload(),
-                request.occurredAt()
+                request.createdAt()
         );
     }
 
@@ -22,7 +22,7 @@ public class RestRequestMapper {
         return new UpdateEventDto(
                 request.sourceSystem(),
                 request.payload(),
-                request.occurredAt()
+                request.createdAt()
         );
     }
 }

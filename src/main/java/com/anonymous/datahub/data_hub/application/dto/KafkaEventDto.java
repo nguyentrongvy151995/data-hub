@@ -8,8 +8,9 @@ import java.time.Instant;
 
 public record KafkaEventDto(
         @NotBlank String eventId,
-        @NotBlank String sourceSystem,
-        @NotNull Instant occurredAt,
+        @NotBlank String eventType,
+        @NotNull Instant createdAt,
+        @NotBlank String source,
         @NotNull JsonNode payload
 ) {
 }

@@ -4,6 +4,7 @@ import com.anonymous.datahub.data_hub.application.dto.EventIngestionResult;
 import com.anonymous.datahub.data_hub.application.dto.KafkaEventDto;
 import com.anonymous.datahub.data_hub.application.usecase.IngestEventUseCase;
 import com.anonymous.datahub.data_hub.shared.exception.InvalidEventException;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
@@ -47,25 +48,33 @@ public class RawEventKafkaListener {
     public void consume(
             String message,
             Acknowledgment acknowledgment,
+            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
             @Header(KafkaHeaders.OFFSET) long offset
     ) {
+        String threadName = Thread.currentThread().getName();
         try {
             KafkaEventDto eventDto = objectMapper.readValue(message, KafkaEventDto.class);
             validate(eventDto);
-
             EventIngestionResult result = ingestEventUseCase.ingest(eventDto);
-            log.debug(
-                    "Message processed: eventId={}, result={}, partition={}, offset={}",
+
+            acknowledgment.acknowledge();
+
+            log.info(
+                    "[KAFKA] thread={} eventId={} eventType={} source={} result={} partition={} offset={}",
+                    threadName,
                     eventDto.eventId(),
+                    eventDto.eventType(),
+                    eventDto.source(),
                     result,
                     partition,
                     offset
             );
-            acknowledgment.acknowledge();
-        } catch (InvalidEventException ex) {
+        } catch (InvalidEventException | JsonProcessingException ex) {
             log.warn(
-                    "Skip invalid message at partition={} offset={} reason={}",
+                    "[KAFKA-CONSUMER][INVALID] thread={} topic={} partition={} offset={} reason={}",
+                    threadName,
+                    topic,
                     partition,
                     offset,
                     ex.getMessage()
@@ -73,7 +82,9 @@ public class RawEventKafkaListener {
             acknowledgment.acknowledge();
         } catch (Exception ex) {
             log.error(
-                    "Failed processing message at partition={} offset={}. Offset is not committed.",
+                    "[KAFKA-CONSUMER][FAILED] thread={} topic={} partition={} offset={}. Offset is not committed.",
+                    threadName,
+                    topic,
                     partition,
                     offset,
                     ex
@@ -95,4 +106,5 @@ public class RawEventKafkaListener {
             throw new InvalidEventException(sb.toString());
         }
     }
+
 }

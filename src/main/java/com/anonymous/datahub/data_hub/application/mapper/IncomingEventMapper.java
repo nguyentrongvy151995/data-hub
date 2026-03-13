@@ -14,43 +14,49 @@ import java.time.Instant;
 @Component
 public class IncomingEventMapper {
 
-    public IncomingEvent toDomain(KafkaEventDto dto, Instant receivedAt) {
+    private static final String MANUAL_EVENT_TYPE = "MANUAL";
+
+    public IncomingEvent toDomain(KafkaEventDto dto, Instant updatedAt) {
         return new IncomingEvent(
                 dto.eventId(),
-                dto.sourceSystem(),
+                dto.eventType(),
+                dto.source(),
                 dto.payload().toString(),
-                dto.occurredAt(),
-                receivedAt
+                dto.createdAt(),
+                updatedAt
         );
     }
 
-    public IncomingEvent toDomain(CreateEventDto dto, Instant receivedAt) {
+    public IncomingEvent toDomain(CreateEventDto dto, Instant updatedAt) {
         return new IncomingEvent(
                 dto.eventId(),
+                MANUAL_EVENT_TYPE,
                 dto.sourceSystem(),
                 dto.payload().toString(),
-                dto.occurredAt(),
-                receivedAt
+                dto.createdAt(),
+                updatedAt
         );
     }
 
-    public IncomingEvent toDomain(String eventId, UpdateEventDto dto, Instant receivedAt) {
+    public IncomingEvent toDomain(String eventId, String eventType, UpdateEventDto dto, Instant updatedAt) {
         return new IncomingEvent(
                 eventId,
+                eventType,
                 dto.sourceSystem(),
                 dto.payload().toString(),
-                dto.occurredAt(),
-                receivedAt
+                dto.createdAt(),
+                updatedAt
         );
     }
 
     public EventDetailDto toEventDetailDto(IncomingEvent event) {
         return new EventDetailDto(
                 event.eventId(),
+                event.eventType(),
                 event.sourceSystem(),
                 event.payload(),
-                event.occurredAt(),
-                event.receivedAt()
+                event.createdAt(),
+                event.updatedAt()
         );
     }
 

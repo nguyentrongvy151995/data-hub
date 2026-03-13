@@ -7,6 +7,6 @@ import java.time.Instant;
 public record UpdateEventDto(
         String sourceSystem,
         JsonNode payload,
-        Instant occurredAt
+        Instant createdAt
 ) {
 }

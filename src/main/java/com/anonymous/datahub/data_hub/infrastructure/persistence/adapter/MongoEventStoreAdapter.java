@@ -1,6 +1,7 @@
 package com.anonymous.datahub.data_hub.infrastructure.persistence.adapter;
 
 import com.anonymous.datahub.data_hub.domain.model.EventPersistenceOutcome;
+import com.anonymous.datahub.data_hub.domain.model.EventProcessingStatus;
 import com.anonymous.datahub.data_hub.domain.model.IncomingEvent;
 import com.anonymous.datahub.data_hub.domain.model.SourceEventVolume;
 import com.anonymous.datahub.data_hub.domain.port.EventStorePort;
@@ -43,13 +44,21 @@ public class MongoEventStoreAdapter implements EventStorePort {
     }
 
     @Override
+    public void updateStatusByEventId(String eventId, EventProcessingStatus status) {
+        rawEventMongoRepository.findByEventId(eventId).ifPresent(document -> {
+            document.setStatus(status.name());
+            rawEventMongoRepository.save(document);
+        });
+    }
+
+    @Override
     public Optional<IncomingEvent> findByEventId(String eventId) {
         return rawEventMongoRepository.findByEventId(eventId).map(this::toDomain);
     }
 
     @Override
     public List<IncomingEvent> findAll() {
-        return rawEventMongoRepository.findAllByOrderByReceivedAtDesc()
+        return rawEventMongoRepository.findAllByOrderByUpdatedAtDesc()
                 .stream()
                 .map(this::toDomain)
                 .toList();
@@ -60,10 +69,11 @@ public class MongoEventStoreAdapter implements EventStorePort {
         RawEventDocument existing = rawEventMongoRepository.findByEventId(eventId)
                 .orElseThrow(() -> new IllegalArgumentException("Event not found: " + eventId));
 
+        existing.setEventType(event.eventType());
         existing.setSourceSystem(event.sourceSystem());
         existing.setPayload(event.payload());
-        existing.setOccurredAt(event.occurredAt());
-        existing.setReceivedAt(event.receivedAt());
+        existing.setCreatedAt(event.createdAt());
+        existing.setUpdatedAt(event.updatedAt());
 
         RawEventDocument updated = rawEventMongoRepository.save(existing);
         return toDomain(updated);
@@ -75,14 +85,14 @@ public class MongoEventStoreAdapter implements EventStorePort {
     }
 
     @Override
-    public long countReceivedBetween(Instant from, Instant to) {
-        return rawEventMongoRepository.countByReceivedAtBetween(from, to);
+    public long countUpdatedBetween(Instant from, Instant to) {
+        return rawEventMongoRepository.countByUpdatedAtBetween(from, to);
     }
 
     @Override
     public List<SourceEventVolume> summarizeBySourceBetween(Instant from, Instant to) {
         Aggregation aggregation = Aggregation.newAggregation(
-                Aggregation.match(Criteria.where("receivedAt").gte(from).lte(to)),
+                Aggregation.match(Criteria.where("updatedAt").gte(from).lte(to)),
                 Aggregation.group("sourceSystem").count().as("total"),
                 Aggregation.project("total").and("_id").as("sourceSystem")
         );
@@ -102,20 +112,23 @@ public class MongoEventStoreAdapter implements EventStorePort {
     private RawEventDocument toDocument(IncomingEvent event) {
         RawEventDocument document = new RawEventDocument();
         document.setEventId(event.eventId());
+        document.setEventType(event.eventType());
         document.setSourceSystem(event.sourceSystem());
+        document.setStatus(EventProcessingStatus.PENDING.name());
         document.setPayload(event.payload());
-        document.setOccurredAt(event.occurredAt());
-        document.setReceivedAt(event.receivedAt());
+        document.setCreatedAt(event.createdAt());
+        document.setUpdatedAt(event.updatedAt());
         return document;
     }
 
     private IncomingEvent toDomain(RawEventDocument document) {
         return new IncomingEvent(
                 document.getEventId(),
+                document.getEventType(),
                 document.getSourceSystem(),
                 document.getPayload(),
-                document.getOccurredAt(),
-                document.getReceivedAt()
+                document.getCreatedAt(),
+                document.getUpdatedAt()
         );
     }
 

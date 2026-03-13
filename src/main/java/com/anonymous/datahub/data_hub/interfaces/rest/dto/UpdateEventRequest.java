@@ -8,7 +8,7 @@ import java.time.Instant;
 
 public record UpdateEventRequest(
         @NotBlank String sourceSystem,
-        @NotNull Instant occurredAt,
+        @NotNull Instant createdAt,
         @NotNull JsonNode payload
 ) {
 }

@@ -15,15 +15,21 @@ public class RawEventDocument {
     @Indexed(name = "uk_event_event_id", unique = true)
     private String eventId;
 
+    @Indexed(name = "idx_event_type")
+    private String eventType;
+
     @Indexed(name = "idx_event_source_system")
     private String sourceSystem;
 
+    @Indexed(name = "idx_event_status")
+    private String status;
+
     private String payload;
 
-    private Instant occurredAt;
+    private Instant createdAt;
 
-    @Indexed(name = "idx_event_received_at")
-    private Instant receivedAt;
+    @Indexed(name = "idx_event_updated_at")
+    private Instant updatedAt;
 
     public String getId() {
         return id;
@@ -49,6 +55,14 @@ public class RawEventDocument {
         this.sourceSystem = sourceSystem;
     }
 
+    public String getEventType() {
+        return eventType;
+    }
+
+    public void setEventType(String eventType) {
+        this.eventType = eventType;
+    }
+
     public String getPayload() {
         return payload;
     }
@@ -57,19 +71,27 @@ public class RawEventDocument {
         this.payload = payload;
     }
 
-    public Instant getOccurredAt() {
-        return occurredAt;
+    public String getStatus() {
+        return status;
     }
 
-    public void setOccurredAt(Instant occurredAt) {
-        this.occurredAt = occurredAt;
+    public void setStatus(String status) {
+        this.status = status;
     }
 
-    public Instant getReceivedAt() {
-        return receivedAt;
+    public Instant getCreatedAt() {
+        return createdAt;
     }
 
-    public void setReceivedAt(Instant receivedAt) {
-        this.receivedAt = receivedAt;
+    public void setCreatedAt(Instant createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }

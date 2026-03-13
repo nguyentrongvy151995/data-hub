@@ -11,9 +11,9 @@ public interface RawEventMongoRepository extends MongoRepository<RawEventDocumen
 
     Optional<RawEventDocument> findByEventId(String eventId);
 
-    List<RawEventDocument> findAllByOrderByReceivedAtDesc();
+    List<RawEventDocument> findAllByOrderByUpdatedAtDesc();
 
     void deleteByEventId(String eventId);
 
-    long countByReceivedAtBetween(Instant from, Instant to);
+    long countByUpdatedAtBetween(Instant from, Instant to);
 }

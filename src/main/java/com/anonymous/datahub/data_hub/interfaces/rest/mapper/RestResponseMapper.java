@@ -14,10 +14,11 @@ public class RestResponseMapper {
     public EventResponse toEventResponse(EventDetailDto dto) {
         return new EventResponse(
                 dto.eventId(),
+                dto.eventType(),
                 dto.sourceSystem(),
                 dto.payload(),
-                dto.occurredAt(),
-                dto.receivedAt()
+                dto.createdAt(),
+                dto.updatedAt()
         );
     }
 

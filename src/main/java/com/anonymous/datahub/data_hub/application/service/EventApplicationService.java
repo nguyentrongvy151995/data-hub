@@ -12,36 +12,49 @@ import com.anonymous.datahub.data_hub.application.usecase.IngestEventUseCase;
 import com.anonymous.datahub.data_hub.application.usecase.ManageEventUseCase;
 import com.anonymous.datahub.data_hub.application.usecase.QueryEventUseCase;
 import com.anonymous.datahub.data_hub.domain.model.EventPersistenceOutcome;
+import com.anonymous.datahub.data_hub.domain.model.EventProcessingStatus;
 import com.anonymous.datahub.data_hub.domain.model.IncomingEvent;
 import com.anonymous.datahub.data_hub.domain.model.SourceEventVolume;
 import com.anonymous.datahub.data_hub.domain.port.EventBusinessProcessor;
 import com.anonymous.datahub.data_hub.domain.port.EventStorePort;
 import com.anonymous.datahub.data_hub.shared.exception.DuplicateResourceException;
 import com.anonymous.datahub.data_hub.shared.exception.ResourceNotFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Service
 public class EventApplicationService implements IngestEventUseCase, QueryEventUseCase, ManageEventUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(EventApplicationService.class);
 
     private final EventStorePort eventStorePort;
     private final EventBusinessProcessor eventBusinessProcessor;
     private final IncomingEventMapper incomingEventMapper;
     private final Clock clock;
+    private final long processingTimeoutMs;
 
     public EventApplicationService(
             EventStorePort eventStorePort,
             EventBusinessProcessor eventBusinessProcessor,
             IncomingEventMapper incomingEventMapper,
-            Clock clock
+            Clock clock,
+            @Value("${app.event.processing.timeout-ms:10000}") long processingTimeoutMs
     ) {
         this.eventStorePort = eventStorePort;
         this.eventBusinessProcessor = eventBusinessProcessor;
         this.incomingEventMapper = incomingEventMapper;
         this.clock = clock;
+        this.processingTimeoutMs = processingTimeoutMs;
     }
 
     @Override
@@ -50,8 +63,15 @@ public class EventApplicationService implements IngestEventUseCase, QueryEventUs
         EventPersistenceOutcome outcome = eventStorePort.saveIfAbsent(event);
 
         if (outcome == EventPersistenceOutcome.STORED) {
-            eventBusinessProcessor.process(event);
-            return EventIngestionResult.STORED;
+            try {
+                processEventWithTimeout(event);
+                eventStorePort.updateStatusByEventId(event.eventId(), EventProcessingStatus.SUCCESS);
+                return EventIngestionResult.STORED;
+            } catch (Exception ex) {
+                eventStorePort.updateStatusByEventId(event.eventId(), EventProcessingStatus.FAILED);
+                log.warn("Event marked as FAILED. eventId={}, reason={}", event.eventId(), ex.getMessage());
+                throw ex;
+            }
         }
 
         return EventIngestionResult.DUPLICATE;
@@ -64,6 +84,7 @@ public class EventApplicationService implements IngestEventUseCase, QueryEventUs
         if (outcome == EventPersistenceOutcome.DUPLICATE) {
             throw new DuplicateResourceException("Event already exists: " + createEventDto.eventId());
         }
+        eventStorePort.updateStatusByEventId(event.eventId(), EventProcessingStatus.SUCCESS);
         return incomingEventMapper.toEventDetailDto(event);
     }
 
@@ -74,8 +95,9 @@ public class EventApplicationService implements IngestEventUseCase, QueryEventUs
 
         IncomingEvent updateCandidate = incomingEventMapper.toDomain(
                 eventId,
+                existingEvent.eventType(),
                 updateEventDto,
-                existingEvent.receivedAt()
+                existingEvent.updatedAt()
         );
         IncomingEvent updated = eventStorePort.updateByEventId(eventId, updateCandidate);
         return incomingEventMapper.toEventDetailDto(updated);
@@ -107,7 +129,7 @@ public class EventApplicationService implements IngestEventUseCase, QueryEventUs
             throw new IllegalArgumentException("from must be before to");
         }
 
-        long totalUnique = eventStorePort.countReceivedBetween(from, to);
+        long totalUnique = eventStorePort.countUpdatedBetween(from, to);
         List<SourceVolumeDto> bySource = eventStorePort.summarizeBySourceBetween(from, to)
                 .stream()
                 .map(this::toSourceVolumeDto)
@@ -118,5 +140,30 @@ public class EventApplicationService implements IngestEventUseCase, QueryEventUs
 
     private SourceVolumeDto toSourceVolumeDto(SourceEventVolume sourceEventVolume) {
         return incomingEventMapper.toSourceVolumeDto(sourceEventVolume);
+    }
+
+    private void processEventWithTimeout(IncomingEvent event) {
+        CompletableFuture<Void> processingFuture = CompletableFuture.runAsync(
+                () -> eventBusinessProcessor.process(event)
+        );
+
+        try {
+            processingFuture.get(processingTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException ex) {
+            processingFuture.cancel(true);
+            throw new IllegalStateException(
+                    "Event processing timed out after " + processingTimeoutMs + "ms for eventId=" + event.eventId(),
+                    ex
+            );
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Event processing interrupted for eventId=" + event.eventId(), ex);
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new RuntimeException(cause != null ? cause : ex);
+        }
     }
 }

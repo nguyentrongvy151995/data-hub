@@ -8,6 +8,6 @@ public record CreateEventDto(
         String eventId,
         String sourceSystem,
         JsonNode payload,
-        Instant occurredAt
+        Instant createdAt
 ) {
 }
