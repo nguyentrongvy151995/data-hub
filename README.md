@@ -12,7 +12,7 @@ Dự án Spring Boot xử lý event theo mô hình Clean/Hexagonal Architecture:
 - `shared` (exception + handler): chứa cross-cutting concerns dùng chung giữa các layer.
 - `infrastructure` (adapter + repository + config): triển khai kỹ thuật cụ thể (MongoDB, Kafka, Security, Bean).
 
-### 1.2 Sơ đồ component (C4-style)
+### 1.2 Sơ đồ component
 
 #### Level 1 - System Context
 
@@ -21,9 +21,9 @@ flowchart LR
     Client["Client Apps\n(Web/Mobile/Backend)"]
     Producer["External Event Producers"]
     Service["Data Hub Service\n(Spring Boot)"]
-    Raw["Kafka topic: data-hub.user-orders"]
-    Dlt["Kafka topic: data-hub.user-orders.DLT"]
-    Park["Kafka topic: data-hub.user-orders.parking-lot"]
+    Raw["Kafka topic: data-hub.user-orders\n(partitions = 3)"]
+    Dlt["Kafka topic: data-hub.user-orders.DLT\n(partitions = 3)"]
+    Park["Kafka topic: data-hub.user-orders.parking-lot\n(partitions = 3)"]
     Mongo[("MongoDB\nraw_event, person")]
 
     Client -->|REST API| Service
@@ -39,7 +39,7 @@ flowchart LR
 flowchart LR
     CLIENT[REST Clients]
     PROD[Kafka Producers]
-    KAFKA[(Kafka Topics)]
+    KAFKA[(Kafka Topics\npartitions = 3 each)]
     MONGO[(MongoDB)]
 
     subgraph DH[Data Hub Service]
@@ -86,11 +86,11 @@ Cách đọc:
 
 ```mermaid
 sequenceDiagram
-    participant K as Kafka (main)
+    participant K as Kafka main (partitions = 3)
     participant L as RawEventKafkaListener
     participant S as EventApplicationService
-    participant D as Kafka (DLT)
-    participant P as Kafka (parking-lot)
+    participant D as Kafka DLT (partitions = 3)
+    participant P as Kafka parking-lot (partitions = 3)
     participant DB as MongoDB
 
     K->>L: message
