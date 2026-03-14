@@ -94,7 +94,7 @@ sequenceDiagram
     L->>L: Step 1 - Parse + Validate
 
     alt Step 1 FAIL (JSON sai hoặc thiếu field bắt buộc -> không retry, đi DLT)
-        opt payload lỗi nhưng vẫn parse được eventId -> mark FAILED trước khi đẩy DLT
+        opt payload lỗi -> mark FAILED trước khi đẩy DLT
             L->>S: markFailedAfterRetries(eventDto)
             S->>DB: update status = FAILED
         end
