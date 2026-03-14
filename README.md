@@ -93,8 +93,8 @@ sequenceDiagram
     K->>L: receive message
     L->>L: Step 1 - Parse + Validate
 
-    alt Step 1 FAIL (non-retryable: invalid schema/validation)
-        opt payload parseable to DTO
+    alt Step 1 FAIL (JSON sai hoặc thiếu field bắt buộc -> không retry, đi DLT)
+        opt payload lỗi nhưng vẫn parse được eventId -> mark FAILED trước khi đẩy DLT
             L->>S: markFailedAfterRetries(eventDto)
             S->>DB: update status = FAILED
         end
@@ -143,7 +143,7 @@ sequenceDiagram
 #### Nhánh lỗi và retry
 
 1. Listener parse + validate trước khi xử lý business.
-2. Lỗi non-retryable (schema/validation) không retry: đẩy DLT ngay và `ack`.
+2. Nếu lỗi ngay từ bước đọc dữ liệu (JSON sai, thiếu field bắt buộc) thì bỏ qua retry, đẩy thẳng DLT và `ack`.
 3. Claim dùng `saveIfAbsent(eventId, status=PROCESSING)` (atomic insert-if-absent).
 4. Nếu duplicate, service thử reclaim atomically khi record đang `FAILED_RETRYABLE`.
 5. Reclaim thành công thì tiếp tục xử lý như event mới; reclaim thất bại thì coi là duplicate và skip.
