@@ -91,57 +91,65 @@ sequenceDiagram
     participant D as Kafka DLT (partitions = 3)
 
     K->>L: receive message
-    L->>L: Step 1 - Validate data
+    L->>L: Step 1 - Parse + Validate
 
-    alt Step 1 OK
-        L->>S: Step 2 - Check duplicate eventId (claim)
-        S->>DB: saveIfAbsent(eventId, status=PROCESSING)\n(atomic insert-if-absent)
+    alt Step 1 FAIL (non-retryable: invalid schema/validation)
+        opt payload parseable to DTO
+            L->>S: markFailedAfterRetries(eventDto)
+            S->>DB: update status = FAILED
+        end
+        L->>D: publish failure (MAIN_TO_DLT)
+        L->>L: ACK offset (done)
+    else Step 1 OK
+        L->>S: Step 2 - Claim ownership by eventId
+        S->>DB: saveIfAbsent(eventId, status=PROCESSING)
 
-        alt Duplicate eventId -> SKIP
-            DB-->>S: DUPLICATE
-            S-->>L: DUPLICATE
-            Note over L,S: Skip business processing
-            L->>L: ACK offset (done)
-        else Not duplicate
+        alt inserted (first claim)
             DB-->>S: STORED
-            S->>S: process business logic
+            S-->>L: STORED
+        else duplicate key
+            DB-->>S: DUPLICATE
+            S->>DB: reclaimIf(status=FAILED_RETRYABLE) -> PROCESSING (atomic)
+            alt reclaimed
+                DB-->>S: STORED
+                S-->>L: STORED
+            else cannot reclaim
+                DB-->>S: DUPLICATE
+                S-->>L: DUPLICATE
+                L->>L: ACK offset (skip)
+            end
+        end
+
+        alt claim result = STORED
+            L->>S: processClaimedEvent(eventDto)
             alt business success
                 S->>DB: update status = SUCCESS
-                S-->>L: STORED
                 L->>L: ACK offset (done)
-            else business fail (exception)
-                L->>L: go to unified retry flow
+            else business fail (retryable)
+                S->>DB: update status = FAILED_RETRYABLE
+                alt còn retry
+                    L->>L: backoff
+                    L->>L: retry from Step 1
+                else hết retry
+                    L->>S: markFailedAfterRetries(eventDto)
+                    S->>DB: update status = FAILED
+                    L->>D: publish failure (MAIN_TO_DLT)
+                    L->>L: ACK offset (done)
+                end
             end
         end
-    else Step 1 FAIL (exception)
-        L->>L: go to unified retry flow
     end
-
-    opt Unified retry flow (for any exception)
-        alt còn retry
-            L->>L: backoff
-            L->>L: retry from Step 1 (validate again)
-        else hết retry
-            opt parseable payload
-                L->>S: markFailedAfterRetries(eventDto)
-                S->>DB: update status = FAILED
-            end
-            L->>D: publish failure (MAIN_TO_DLT)
-            L->>L: ACK offset (done)
-        end
-    end
-
 ```
 #### Nhánh lỗi và retry
 
-1. Step 1: listener validate data trước khi gọi service.
-2. Step 2: service check duplicate bằng `saveIfAbsent(eventId, status=PROCESSING)` theo kiểu atomic (`insert-if-absent`).
-3. Nếu duplicate (`eventId` đã có) thì trả `DUPLICATE`, skip business logic, và listener `ack`.
-4. Nếu không duplicate thì chạy business logic và cập nhật `SUCCESS`.
-5. Mọi lỗi (validate fail hoặc business fail) đều đi vào một retry flow chung.
-6. Retry luôn chạy lại từ Step 1 (validate lại toàn bộ message).
-7. Chỉ khi hết retry mới publish envelope sang DLT (`data-hub.user-orders.DLT`).
-8. Khi hết retry: cập nhật `FAILED` (nếu parseable), publish DLT, rồi `ack` offset.
+1. Listener parse + validate trước khi xử lý business.
+2. Lỗi non-retryable (schema/validation) không retry: đẩy DLT ngay và `ack`.
+3. Claim dùng `saveIfAbsent(eventId, status=PROCESSING)` (atomic insert-if-absent).
+4. Nếu duplicate, service thử reclaim atomically khi record đang `FAILED_RETRYABLE`.
+5. Reclaim thành công thì tiếp tục xử lý như event mới; reclaim thất bại thì coi là duplicate và skip.
+6. Khi business fail retryable, service set `FAILED_RETRYABLE` (không delete record).
+7. Retry luôn quay lại từ Step 1; chỉ retry với lỗi retryable.
+8. Hết retry: `markFailedAfterRetries` -> `FAILED` -> publish DLT -> `ack`.
 ### 2.2 Luồng REST command/query
 
 #### Command flow (`POST/PUT/DELETE /api/events`)
