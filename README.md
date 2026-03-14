@@ -184,15 +184,43 @@ Mục tiêu: lưu event thô + trạng thái xử lý để support ingest idemp
 4. **Index `updatedAt`** phục vụ filter theo cửa sổ thời gian cho report; **index `sourceSystem`** phục vụ tra cứu và mở rộng truy vấn theo nguồn.
 5. **Lưu `payload` dạng string** để giữ nguyên raw event, tránh coupling chặt vào schema payload động từ upstream.
 
-## 4. Chạy local nhanh
+## 4. Design Decisions
 
-### 4.1 Start dependencies
+#### 1. Cách xử lý duplicate
+
+1. `claimForProcessing` gọi `saveIfAbsent(eventId, status=PROCESSING)` để claim quyền xử lý.
+2. `eventId` có unique index nên chỉ 1 consumer claim thành công cho mỗi eventId.
+3. Nếu insert bị duplicate, service thử `reclaimForProcessing(eventId)` khi status hiện tại là `FAILED_RETRYABLE` (atomic).
+4. Nếu reclaim thất bại thì coi là duplicate thật, bỏ qua business logic và `ack` offset.
+
+#### 2. Cách commit offset
+
+1. Listener dùng `MANUAL_IMMEDIATE`, tức là chỉ commit khi gọi `acknowledgment.acknowledge()`.
+2. Offset được commit ở 3 trường hợp: xử lý thành công, duplicate-skip, hoặc đã publish sang DLT.
+3. Khi còn retry nội bộ (`attempt < totalAttempts`) thì chưa `ack`, offset vẫn chưa commit.
+
+#### 3. Chiến lược retry
+
+1. Retry thực hiện trong cùng lần consume bằng vòng lặp `attempt = 1..N` và `backoff`.
+2. Chỉ retry lỗi retryable; lỗi `InvalidEventException` và `JsonProcessingException` đi nhánh non-retryable.
+3. Hết retry: mark `FAILED` (nếu parse được DTO/eventId), publish DLT, rồi `ack` offset main topic.
+
+#### 4. Cách đảm bảo không mất dữ liệu
+
+1. Dùng semantics at-least-once: chỉ commit offset sau khi có kết quả cuối cùng cho message.
+2. Event hợp lệ được lưu vào Mongo với status lifecycle `PROCESSING -> SUCCESS/FAILED_RETRYABLE/FAILED`.
+3. Nếu service crash trước khi `ack`, Kafka sẽ deliver lại; duplicate được chặn bởi unique `eventId` + claim/reclaim atomic.
+4. Message xử lý thất bại cuối cùng vẫn được giữ ở DLT (kèm payload + metadata lỗi) để điều tra/replay, tránh thất lạc dữ liệu.
+
+## 5. Chạy local nhanh
+
+### 5.1 Start dependencies
 
 ```bash
 docker compose up -d
 ```
 
-### 4.2 Run app
+### 5.2 Run app
 
 ```bash
 ./mvnw spring-boot:run
@@ -200,7 +228,7 @@ docker compose up -d
 
 App mặc định chạy tại `http://localhost:8084`.
 
-### 4.3 Run test
+### 5.3 Run test
 
 ```bash
 ./mvnw test
