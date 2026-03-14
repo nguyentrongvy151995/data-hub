@@ -86,33 +86,33 @@ Cách đọc:
 
 ```mermaid
 sequenceDiagram
-    participant K as Kafka Topic (data-hub.user-orders)
+    participant K as Kafka (main)
     participant L as RawEventKafkaListener
     participant S as EventApplicationService
-    participant D as Kafka Topic (data-hub.user-orders.DLT)
-    participant PK as Kafka Topic (data-hub.user-orders.parking-lot)
-    participant DB as MongoDB(raw_event)
+    participant D as Kafka (DLT)
+    participant P as Kafka (parking-lot)
+    participant DB as MongoDB
 
-    K->>L: message (eventId, eventType, source, payload, createdAt)
+    K->>L: message
     L->>L: parse + validate
     L->>S: ingest(eventDto)
 
-    alt STORED or DUPLICATE
+    alt SUCCESS PATH (STORED or DUPLICATE)
         S-->>L: result
-        L->>L: ack offset
-    else Exception at attempt n
-        L->>D: publish failure envelope (MAIN_TO_DLT)
-
-        alt n < totalAttempts
-            L->>L: sleep backoff
+        L->>L: ACK offset (done)
+    else FAIL PATH (parse/validate/ingest exception)
+        L->>D: publish failure (MAIN_TO_DLT)
+        alt còn retry
+            L->>L: backoff
             L->>S: retry ingest(eventDto)
-        else n = totalAttempts
+        else hết retry
             L->>S: markFailedAfterRetries(eventDto)
             S->>DB: update status = FAILED
-            L->>PK: publish failure envelope (DLT_TO_PARKING_LOT)
-            L->>L: ack offset
+            L->>P: publish failure (DLT_TO_PARKING_LOT)
+            L->>L: ACK offset (done)
         end
     end
+
 ```
 
 #### Nhánh lỗi và retry
