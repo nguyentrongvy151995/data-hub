@@ -72,9 +72,12 @@ public class EventApplicationService implements IngestEventUseCase, QueryEventUs
     public EventIngestionResult claimForProcessing(KafkaEventDto eventDto) {
         IncomingEvent event = incomingEventMapper.toDomain(eventDto, Instant.now(clock));
         EventPersistenceOutcome outcome = eventStorePort.saveIfAbsent(event);
-        return outcome == EventPersistenceOutcome.STORED
-                ? EventIngestionResult.STORED
-                : EventIngestionResult.DUPLICATE;
+        if (outcome == EventPersistenceOutcome.STORED) {
+            return EventIngestionResult.STORED;
+        }
+
+        boolean reclaimed = eventStorePort.reclaimForProcessing(event.eventId(), event.updatedAt());
+        return reclaimed ? EventIngestionResult.STORED : EventIngestionResult.DUPLICATE;
     }
 
     @Override
@@ -84,8 +87,8 @@ public class EventApplicationService implements IngestEventUseCase, QueryEventUs
             processEventWithTimeout(event);
             eventStorePort.updateStatusByEventId(event.eventId(), EventProcessingStatus.SUCCESS);
         } catch (Exception ex) {
-            // Remove temporary record so main consumer retry can execute the logic again.
-            eventStorePort.deleteByEventId(event.eventId());
+            // Keep record and mark retryable failure so next attempt can reclaim atomically.
+            eventStorePort.updateStatusByEventId(event.eventId(), EventProcessingStatus.FAILED_RETRYABLE);
             throw ex;
         }
     }

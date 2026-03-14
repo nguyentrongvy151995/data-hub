@@ -164,7 +164,7 @@ Mục tiêu: lưu event thô + trạng thái xử lý để support ingest idemp
 - `eventId` (business key, unique)
 - `eventType`
 - `sourceSystem`
-- `status` (`PROCESSING` | `SUCCESS` | `FAILED`)
+- `status` (`PROCESSING` | `SUCCESS` | `FAILED_RETRYABLE` | `FAILED`)
 - `payload` (JSON string gốc)
 - `createdAt` (thời điểm event sinh ra)
 - `updatedAt` (thời điểm hệ thống ghi/cập nhật)

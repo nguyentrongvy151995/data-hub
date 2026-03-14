@@ -117,7 +117,7 @@ class EventApplicationServiceTest {
     }
 
     @Test
-    void ingestShouldDeleteTemporaryRecordWhenBusinessProcessingFails() {
+    void ingestShouldMarkRetryableWhenBusinessProcessingFails() {
         KafkaEventDto kafkaEventDto = new KafkaEventDto("evt-100", "BET", CREATED_AT, "systemA", payload());
         IncomingEvent domainEvent = new IncomingEvent("evt-100", "BET", "systemA", "{\"amount\":100}", CREATED_AT, FIXED_NOW);
 
@@ -129,23 +129,41 @@ class EventApplicationServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Business failure");
 
-        verify(eventStorePort).deleteByEventId("evt-100");
+        verify(eventStorePort).updateStatusByEventId("evt-100", EventProcessingStatus.FAILED_RETRYABLE);
         verify(eventStorePort, never()).updateStatusByEventId(any(), eq(EventProcessingStatus.SUCCESS));
+        verify(eventStorePort, never()).deleteByEventId(any());
     }
 
     @Test
-    void ingestShouldReturnDuplicateWhenEventAlreadyExists() {
+    void ingestShouldReturnDuplicateWhenEventAlreadyExistsAndCannotReclaim() {
         KafkaEventDto kafkaEventDto = new KafkaEventDto("evt-100", "BET", CREATED_AT, "systemA", payload());
         IncomingEvent domainEvent = new IncomingEvent("evt-100", "BET", "systemA", "{\"amount\":100}", CREATED_AT, FIXED_NOW);
 
         when(incomingEventMapper.toDomain(eq(kafkaEventDto), any(Instant.class))).thenReturn(domainEvent);
         when(eventStorePort.saveIfAbsent(domainEvent)).thenReturn(EventPersistenceOutcome.DUPLICATE);
+        when(eventStorePort.reclaimForProcessing("evt-100", FIXED_NOW)).thenReturn(false);
 
         EventIngestionResult result = eventApplicationService.ingest(kafkaEventDto);
 
         assertThat(result).isEqualTo(EventIngestionResult.DUPLICATE);
         verifyNoInteractions(eventBusinessProcessor);
-        verify(eventStorePort, never()).updateStatusByEventId(any(), any());
+        verify(eventStorePort, never()).updateStatusByEventId(any(), eq(EventProcessingStatus.SUCCESS));
+    }
+
+    @Test
+    void ingestShouldReclaimAndProcessWhenExistingEventIsRetryable() {
+        KafkaEventDto kafkaEventDto = new KafkaEventDto("evt-100", "BET", CREATED_AT, "systemA", payload());
+        IncomingEvent domainEvent = new IncomingEvent("evt-100", "BET", "systemA", "{\"amount\":100}", CREATED_AT, FIXED_NOW);
+
+        when(incomingEventMapper.toDomain(eq(kafkaEventDto), any(Instant.class))).thenReturn(domainEvent);
+        when(eventStorePort.saveIfAbsent(domainEvent)).thenReturn(EventPersistenceOutcome.DUPLICATE);
+        when(eventStorePort.reclaimForProcessing("evt-100", FIXED_NOW)).thenReturn(true);
+
+        EventIngestionResult result = eventApplicationService.ingest(kafkaEventDto);
+
+        assertThat(result).isEqualTo(EventIngestionResult.STORED);
+        verify(eventBusinessProcessor).process(domainEvent);
+        verify(eventStorePort).updateStatusByEventId("evt-100", EventProcessingStatus.SUCCESS);
     }
 
     private JsonNode payload() {

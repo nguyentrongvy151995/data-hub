@@ -13,6 +13,8 @@ public interface EventStorePort {
 
     EventPersistenceOutcome saveIfAbsent(IncomingEvent event);
 
+    boolean reclaimForProcessing(String eventId, Instant updatedAt);
+
     void updateStatusByEventId(String eventId, EventProcessingStatus status);
 
     Optional<IncomingEvent> findByEventId(String eventId);

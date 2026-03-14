@@ -7,11 +7,14 @@ import com.anonymous.datahub.data_hub.domain.model.SourceEventVolume;
 import com.anonymous.datahub.data_hub.domain.port.EventStorePort;
 import com.anonymous.datahub.data_hub.infrastructure.persistence.document.RawEventDocument;
 import com.anonymous.datahub.data_hub.infrastructure.persistence.repository.RawEventMongoRepository;
+import com.mongodb.client.result.UpdateResult;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -42,6 +45,19 @@ public class MongoEventStoreAdapter implements EventStorePort {
         } catch (DuplicateKeyException ex) {
             return EventPersistenceOutcome.DUPLICATE;
         }
+    }
+
+    @Override
+    public boolean reclaimForProcessing(String eventId, Instant updatedAt) {
+        Query query = new Query(Criteria.where("eventId").is(eventId)
+                .and("status").is(EventProcessingStatus.FAILED_RETRYABLE.name()));
+
+        Update update = new Update()
+                .set("status", EventProcessingStatus.PROCESSING.name())
+                .set("updatedAt", updatedAt);
+
+        UpdateResult result = mongoTemplate.updateFirst(query, update, RawEventDocument.class);
+        return result.getModifiedCount() > 0;
     }
 
     @Override
