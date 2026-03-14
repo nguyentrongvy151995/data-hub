@@ -12,88 +12,62 @@ Dự án Spring Boot xử lý event theo mô hình Clean/Hexagonal Architecture:
 - `shared` (exception + handler): chứa cross-cutting concerns dùng chung giữa các layer.
 - `infrastructure` (adapter + repository + config): triển khai kỹ thuật cụ thể (MongoDB, Kafka, Security, Bean).
 
-### 1.2 Sơ đồ kiến trúc tổng hợp (System + Container)
+### 1.2 Sơ đồ component (C4-style)
+
+#### Level 1 - System Context
 
 ```mermaid
 flowchart TB
-    subgraph EXT[External Systems]
-        CLIENT["Client Applications\n(Web/Mobile/Backend)"]
-        PRODUCER["External Event Producers"]
-        KRAW[("Kafka Topic: raw-events")]
-        KDLT[("Kafka Topic: raw-events.DLT")]
-        KPARK[("Kafka Topic: raw-events.parking-lot")]
-        MONGO[("MongoDB")]
-    end
+    Client["Client Applications\n(Web/Mobile/Backend)"]
+    Producer["External Event Producers"]
+    Kafka[("Kafka Cluster\nraw-events / DLT / parking-lot")]
+    DataHub["Data Hub Service\nSpring Boot"]
+    Mongo[("MongoDB")]
 
-    subgraph APP[Data Hub Service - Spring Boot]
-        subgraph IFACE[interfaces]
-            ECMD["EventCommandController\nPOST/PUT/DELETE /api/events"]
-            EQRY["EventQueryController\nGET /api/events"]
-            RPT["ReportController\nGET /api/reports/ingestion-summary"]
-            PCTRL["PersonController\nPOST /api/person"]
-            KLISTENER["RawEventKafkaListener\n@KafkaListener(raw-events)"]
-            REQMAP["RestRequestMapper / PersonRestMapper"]
-            RESMAP["RestResponseMapper"]
-        end
-
-        subgraph APP_LAYER[application]
-            EAPP["EventApplicationService\n(Manage + Query + Ingest UseCases)"]
-            PAPP["PersonApplicationService"]
-            INGEST["ingest(eventDto)\nmanual ack after success/final handling"]
-            PROCESS["EventBusinessProcessor\n(NoOpEventBusinessProcessor)"]
-        end
-
-        subgraph DOMAIN[domain]
-            EPORT["EventStorePort"]
-            PPORT["PersonStorePort"]
-        end
-
-        subgraph INFRA[infrastructure]
-            EAD["MongoEventStoreAdapter"]
-            PAD["MongoPersonStoreAdapter"]
-            EREPO["RawEventMongoRepository"]
-            PREPO["PersonMongoRepository"]
-            KCFG["KafkaConsumerConfig / KafkaTopicConfig"]
-        end
-
-        subgraph SHARED[shared]
-            EXH["GlobalExceptionHandler"]
-            EXC["Custom Exceptions\n(Duplicate/Invalid/NotFound)"]
-        end
-    end
-
-    CLIENT --> ECMD
-    CLIENT --> EQRY
-    CLIENT --> RPT
-    CLIENT --> PCTRL
-
-    ECMD --> REQMAP --> EAPP
-    EQRY --> EAPP --> RESMAP
-    RPT --> EAPP --> RESMAP
-    PCTRL --> REQMAP --> PAPP --> RESMAP
-
-    PRODUCER --> KRAW --> KLISTENER --> INGEST --> EAPP
-    EAPP --> PROCESS
-
-    EAPP --> EPORT --> EAD --> EREPO --> MONGO
-    PAPP --> PPORT --> PAD --> PREPO --> MONGO
-
-    KLISTENER -. retry fail .-> KDLT
-    KLISTENER -. exhausted retry .-> KPARK
-
-    ECMD -. errors .-> EXH
-    EQRY -. errors .-> EXH
-    RPT -. errors .-> EXH
-    PCTRL -. errors .-> EXH
-    EXH --> EXC
-
-    KCFG -. config .-> KLISTENER
+    Client -- "REST/JSON" --> DataHub
+    Producer -- "Publish events" --> Kafka
+    Kafka -- "Consume raw-events" --> DataHub
+    DataHub -- "Persist + Query" --> Mongo
+    DataHub -- "Publish failed events" --> Kafka
 ```
 
-Ghi chú:
-- Sơ đồ trên gộp cả bối cảnh hệ thống bên ngoài và kiến trúc bên trong service để reviewer nhìn một lần là thấy toàn bộ luồng.
-- Luồng quan trọng nhất: `Kafka raw-events -> RawEventKafkaListener -> EventApplicationService -> EventStorePort -> Mongo`.
-- Luồng lỗi: listener publish sang `DLT` và `parking-lot` khi retry thất bại.
+#### Level 2 - Container View (bên trong Data Hub)
+
+```mermaid
+flowchart LR
+    CLIENT[REST Clients]
+    PROD[Kafka Producers]
+    KAFKA[(Kafka Topics)]
+    MONGO[(MongoDB)]
+
+    subgraph DH[Data Hub Service]
+        REST["REST API Layer\nEventCommandController\nEventQueryController\nReportController\nPersonController"]
+        LISTENER["Kafka Consumer Layer\nRawEventKafkaListener"]
+        APP["Application Layer\nEventApplicationService\nPersonApplicationService"]
+        PORTS["Domain Ports\nEventStorePort\nPersonStorePort\nEventBusinessProcessor"]
+        ADAPTER["Infrastructure Adapters\nMongoEventStoreAdapter\nMongoPersonStoreAdapter"]
+        REPO["Mongo Repositories\nRawEventMongoRepository\nPersonMongoRepository"]
+    end
+
+    CLIENT --> REST
+    REST --> APP
+
+    PROD --> KAFKA
+    KAFKA --> LISTENER
+    LISTENER --> APP
+
+    APP --> PORTS
+    PORTS --> ADAPTER
+    ADAPTER --> REPO
+    REPO --> MONGO
+
+    LISTENER --> KAFKA
+```
+
+Cách đọc:
+- Context diagram: cho người đọc business/system-level thấy hệ thống giao tiếp với ai.
+- Container diagram: cho dev thấy trách nhiệm từng khối trong service và dependency direction.
+
 ### 1.3 Mapping package theo tầng
 
 - `interfaces/rest`: HTTP controllers + request/response mapper.
