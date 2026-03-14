@@ -280,8 +280,51 @@ curl http://localhost:8084/ping
 <!-- - Kafka bootstrap server (local tool/service local): `localhost:9092`
 - Kafka bootstrap server (service trong Docker network): `kafka:29092` -->
 
-### 7.3 Run test
+### 7.3 Run test (chi tiết)
+
+Điều kiện trước khi test:
+
+1. Dùng Java 21 (`java -version`).
+2. Đứng tại root project `data-hub`.
+
+Chạy toàn bộ test:
 
 ```bash
 ./mvnw test
 ```
+
+Chạy riêng unit test service logic (nhanh, không phụ thuộc DB/Kafka ngoài):
+
+```bash
+./mvnw -Dtest=EventApplicationServiceTest test
+```
+
+Chạy integration test Kafka listener (dùng Embedded Kafka trong test):
+
+```bash
+./mvnw -Dtest=RawEventKafkaListenerIntegrationTest test
+```
+
+Chạy integration test Mongo repository:
+
+```bash
+# Test này cần MongoDB ở localhost:27017
+# Nếu máy chưa có Mongo local, bật nhanh bằng Docker:
+docker run --rm -d --name data-hub-mongo-test -p 27017:27017 mongo:7
+
+./mvnw -Dtest=RawEventMongoRepositoryIntegrationTest test
+
+# Dọn container test
+docker stop data-hub-mongo-test
+```
+
+Chạy 1 testcase cụ thể:
+
+```bash
+./mvnw -Dtest=EventApplicationServiceTest#createShouldPersistAndMarkSuccessWhenEventIsNew test
+```
+
+Xem report test khi fail:
+
+- `target/surefire-reports/*.txt`
+- `target/surefire-reports/*.xml`
