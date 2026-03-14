@@ -262,21 +262,34 @@ Các quyết định kỹ thuật hiện tại và hạn chế đi kèm:
 
 ## 7. Chạy local nhanh
 
-### 7.1 Start dependencies
+### 7.1 Start project bằng Docker Compose (Kafka + MongoDB + Service)
 
 ```bash
-docker compose up -d
+docker compose down -v --remove-orphans
+docker compose up --build -d
+docker compose ps
+curl http://localhost:8084/ping
 ```
 
-### 7.2 Run app
+### 7.2 Start project khi chạy service từ source (optional)
 
 ```bash
+docker compose up -d mongo kafka kafka-ui
+export MONGODB_URI='mongodb://datahub:datahub@localhost:27018/data_hub?authSource=admin&directConnection=true'
+export KAFKA_BOOTSTRAP_SERVERS='localhost:9092'
 ./mvnw spring-boot:run
 ```
 
-App mặc định chạy tại `http://localhost:8084`.
+### 7.3 URL/URI cho dev
 
-### 7.3 Run test
+- App health check: `http://localhost:8084/ping`
+- Kafka UI: `http://localhost:18080`
+- MongoDB URI (từ local tool/Compass): `mongodb://datahub:datahub@localhost:27018/admin?authSource=admin&directConnection=true`
+- MongoDB URI (service chạy trong Docker): `mongodb://datahub:datahub@mongo:27017/data_hub?authSource=admin`
+- Kafka bootstrap server (local tool/service local): `localhost:9092`
+- Kafka bootstrap server (service trong Docker network): `kafka:29092`
+
+### 7.4 Run test
 
 ```bash
 ./mvnw test
