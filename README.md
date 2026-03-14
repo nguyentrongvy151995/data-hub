@@ -97,7 +97,7 @@ sequenceDiagram
     L->>L: Step 1 - Validate data
 
     alt Step 1 OK
-        L->>S: Step 2 - Check duplicate eventId
+        L->>S: Step 2 - Check duplicate eventId + ingest
         S->>DB: saveIfAbsent(eventId, status=PROCESSING)\n(atomic insert-if-absent)
 
         alt Duplicate eventId -> SKIP
@@ -105,35 +105,27 @@ sequenceDiagram
             S-->>L: DUPLICATE
             Note over L,S: Skip business processing
             L->>L: ACK offset (done)
-        else Not duplicate -> Continue flow
+        else Not duplicate
             DB-->>S: STORED
             S->>S: process business logic
-
             alt business success
                 S->>DB: update status = SUCCESS
                 S-->>L: STORED
                 L->>L: ACK offset (done)
-            else business fail
-                L->>D: publish failure (MAIN_TO_DLT)
-                alt còn retry
-                    L->>L: backoff
-                    L->>S: retry ingest(eventDto)
-                else hết retry
-                    L->>S: markFailedAfterRetries(eventDto)
-                    S->>DB: update status = FAILED
-                    L->>P: publish failure (DLT_TO_PARKING_LOT)
-                    L->>L: ACK offset (done)
-                end
+            else business fail (exception)
+                L->>L: go to unified retry flow
             end
         end
+    else Step 1 FAIL (exception)
+        L->>L: go to unified retry flow
+    end
 
-    else Step 1 FAIL
+    opt Unified retry flow (for any exception)
+        L->>D: publish failure (MAIN_TO_DLT)
         alt còn retry
-            L->>D: publish failure (MAIN_TO_DLT)
             L->>L: backoff
-            L->>L: retry validate (attempt n+1)
+            L->>L: retry from Step 1 (validate again)
         else hết retry
-            L->>D: publish failure (MAIN_TO_DLT)
             opt parseable payload
                 L->>S: markFailedAfterRetries(eventDto)
                 S->>DB: update status = FAILED
@@ -149,13 +141,11 @@ sequenceDiagram
 1. Step 1: listener validate data trước khi gọi service.
 2. Step 2: service check duplicate bằng `saveIfAbsent(eventId, status=PROCESSING)` theo kiểu atomic (`insert-if-absent`).
 3. Nếu duplicate (`eventId` đã có) thì trả `DUPLICATE`, skip business logic, và listener `ack`.
-4. Nếu không duplicate thì mới chạy business logic và cập nhật trạng thái xử lý.
-5. Nếu Step 1 validate fail thì listener vẫn retry trong cùng lần consume theo `app.kafka.retry.max-attempts`.
-6. Mỗi lần fail sẽ publish envelope sang topic DLT (`data-hub.user-orders.DLT`).
-7. Khi hết retry:
-- gọi `markFailedAfterRetries` để set `FAILED` trong DB,
-- publish thêm sang parking-lot (`data-hub.user-orders.parking-lot`),
-- rồi `ack` offset để tránh stuck consumer.
+4. Nếu không duplicate thì chạy business logic và cập nhật `SUCCESS`.
+5. Mọi lỗi (validate fail hoặc business fail) đều đi vào một retry flow chung.
+6. Retry luôn chạy lại từ Step 1 (validate lại toàn bộ message).
+7. Mỗi lần fail publish envelope sang DLT (`data-hub.user-orders.DLT`).
+8. Khi hết retry: cập nhật `FAILED` (nếu parseable), publish parking-lot (`data-hub.user-orders.parking-lot`), rồi `ack` offset.
 ### 2.2 Luồng REST command/query
 
 #### Command flow (`POST/PUT/DELETE /api/events`)
