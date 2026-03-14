@@ -59,24 +59,35 @@ public class EventApplicationService implements IngestEventUseCase, QueryEventUs
 
     @Override
     public EventIngestionResult ingest(KafkaEventDto eventDto) {
-        IncomingEvent event = incomingEventMapper.toDomain(eventDto, Instant.now(clock));
-        EventPersistenceOutcome outcome = eventStorePort.saveIfAbsent(event);
-
-        if (outcome == EventPersistenceOutcome.STORED) {
-            try {
-                processEventWithTimeout(event);
-                eventStorePort.updateStatusByEventId(event.eventId(), EventProcessingStatus.SUCCESS);
-                return EventIngestionResult.STORED;
-            } catch (Exception ex) {
-                // Remove temporary record so main consumer retry can execute the logic again.
-                eventStorePort.deleteByEventId(event.eventId());
-                // log.warn("Event processing failed and temporary record is removed. eventId={}, reason={}",
-                //         event.eventId(), ex.getMessage());
-                throw ex;
-            }
+        EventIngestionResult claimResult = claimForProcessing(eventDto);
+        if (claimResult == EventIngestionResult.DUPLICATE) {
+            return claimResult;
         }
 
-        return EventIngestionResult.DUPLICATE;
+        processClaimedEvent(eventDto);
+        return EventIngestionResult.STORED;
+    }
+
+    @Override
+    public EventIngestionResult claimForProcessing(KafkaEventDto eventDto) {
+        IncomingEvent event = incomingEventMapper.toDomain(eventDto, Instant.now(clock));
+        EventPersistenceOutcome outcome = eventStorePort.saveIfAbsent(event);
+        return outcome == EventPersistenceOutcome.STORED
+                ? EventIngestionResult.STORED
+                : EventIngestionResult.DUPLICATE;
+    }
+
+    @Override
+    public void processClaimedEvent(KafkaEventDto eventDto) {
+        IncomingEvent event = incomingEventMapper.toDomain(eventDto, Instant.now(clock));
+        try {
+            processEventWithTimeout(event);
+            eventStorePort.updateStatusByEventId(event.eventId(), EventProcessingStatus.SUCCESS);
+        } catch (Exception ex) {
+            // Remove temporary record so main consumer retry can execute the logic again.
+            eventStorePort.deleteByEventId(event.eventId());
+            throw ex;
+        }
     }
 
     @Override

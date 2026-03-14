@@ -94,7 +94,7 @@ sequenceDiagram
     L->>L: Step 1 - Validate data
 
     alt Step 1 OK
-        L->>S: Step 2 - Check duplicate eventId + ingest
+        L->>S: Step 2 - Check duplicate eventId (claim)
         S->>DB: saveIfAbsent(eventId, status=PROCESSING)\n(atomic insert-if-absent)
 
         alt Duplicate eventId -> SKIP
@@ -164,7 +164,7 @@ Mục tiêu: lưu event thô + trạng thái xử lý để support ingest idemp
 - `eventId` (business key, unique)
 - `eventType`
 - `sourceSystem`
-- `status` (`PENDING` | `SUCCESS` | `FAILED`)
+- `status` (`PROCESSING` | `SUCCESS` | `FAILED`)
 - `payload` (JSON string gốc)
 - `createdAt` (thời điểm event sinh ra)
 - `updatedAt` (thời điểm hệ thống ghi/cập nhật)

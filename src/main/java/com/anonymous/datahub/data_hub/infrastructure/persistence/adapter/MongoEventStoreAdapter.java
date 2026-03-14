@@ -35,6 +35,7 @@ public class MongoEventStoreAdapter implements EventStorePort {
     @Override
     public EventPersistenceOutcome saveIfAbsent(IncomingEvent event) {
         RawEventDocument document = toDocument(event);
+        // Atomic claim: unique eventId decides ownership of processing for this event.
         try {
             rawEventMongoRepository.insert(document);
             return EventPersistenceOutcome.STORED;
@@ -114,7 +115,7 @@ public class MongoEventStoreAdapter implements EventStorePort {
         document.setEventId(event.eventId());
         document.setEventType(event.eventType());
         document.setSourceSystem(event.sourceSystem());
-        document.setStatus(EventProcessingStatus.PENDING.name());
+        document.setStatus(EventProcessingStatus.PROCESSING.name());
         document.setPayload(event.payload());
         document.setCreatedAt(event.createdAt());
         document.setUpdatedAt(event.updatedAt());

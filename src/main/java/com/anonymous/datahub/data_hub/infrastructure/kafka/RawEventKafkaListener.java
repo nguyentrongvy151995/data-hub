@@ -81,7 +81,6 @@ public class RawEventKafkaListener {
             @Header(KafkaHeaders.OFFSET) long offset,
             @Header(value = KafkaHeaders.RECEIVED_KEY, required = false) String key
     ) {
-        String threadName = Thread.currentThread().getName();
         KafkaEventDto parsedEvent = null;
         String extractedEventId = extractEventId(message);
         int totalAttempts = Math.max(0, maxRetryAttempts) + 1;
@@ -91,15 +90,29 @@ public class RawEventKafkaListener {
                 parsedEvent = objectMapper.readValue(message, KafkaEventDto.class);
                 validate(parsedEvent);
                 // simulateRandomFailureIfEnabled(parsedEvent, attempt, totalAttempts, partition, offset);
-                EventIngestionResult result = ingestEventUseCase.ingest(parsedEvent);
+
+                EventIngestionResult claimResult = ingestEventUseCase.claimForProcessing(parsedEvent);
+                if (claimResult == EventIngestionResult.DUPLICATE) {
+                    acknowledgment.acknowledge();
+                    log.info(
+                            "\n[KAFKA][DUPLICATE-SKIP] eventId={} attempt={}/{} partition={} offset={} mainOffsetAcked=true",
+                            parsedEvent.eventId(),
+                            attempt,
+                            totalAttempts,
+                            partition,
+                            offset
+                    );
+                    return;
+                }
+
+                ingestEventUseCase.processClaimedEvent(parsedEvent);
 
                 // commit offset
                 acknowledgment.acknowledge();
                 log.info(
-                        "[KAFKA][MAIN-SUCCESS] thread={} eventId={} result={} attempt={}/{} partition={} offset={}",
-                        threadName,
+                        "[KAFKA][MAIN-SUCCESS] eventId={} result={} attempt={}/{} partition={} offset={}",
                         parsedEvent.eventId(),
-                        result,
+                        EventIngestionResult.STORED,
                         attempt,
                         totalAttempts,
                         partition,
@@ -112,8 +125,7 @@ public class RawEventKafkaListener {
 
                 if (retryable && attempt < totalAttempts) {
                     log.warn(
-                            "[KAFKA][RETRY] thread={} eventId={} attempt={}/{} partition={} offset={} reason={}",
-                            threadName,
+                            "[KAFKA][RETRY] eventId={} attempt={}/{} partition={} offset={} reason={}",
                             eventId,
                             attempt,
                             totalAttempts,
@@ -127,8 +139,7 @@ public class RawEventKafkaListener {
 
                 if (!retryable) {
                     log.warn(
-                            "[KAFKA][NON-RETRYABLE] thread={} eventId={} attempt={}/{} partition={} offset={} reason={}",
-                            threadName,
+                            "[KAFKA][NON-RETRYABLE] eventId={} attempt={}/{} partition={} offset={} reason={}",
                             eventId,
                             attempt,
                             totalAttempts,
@@ -142,8 +153,7 @@ public class RawEventKafkaListener {
                     ingestEventUseCase.markFailedAfterRetries(parsedEvent);
                 } else {
                     log.warn(
-                            "[KAFKA][FAILED-PERSIST-SKIPPED] thread={} partition={} offset={} reason=event payload is not parseable",
-                            threadName,
+                            "[KAFKA][FAILED-PERSIST-SKIPPED] partition={} offset={} reason=event payload is not parseable",
                             partition,
                             offset
                     );
@@ -163,8 +173,7 @@ public class RawEventKafkaListener {
 
                 acknowledgment.acknowledge();
                 log.error(
-                        "[KAFKA][DLT] thread={} eventId={} attempt={}/{} partition={} offset={} mainOffsetAcked=true",
-                        threadName,
+                        "[KAFKA][DLT] eventId={} attempt={}/{} partition={} offset={} mainOffsetAcked=true",
                         eventId,
                         attempt,
                         totalAttempts,

@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -70,13 +72,14 @@ class RawEventKafkaListenerIntegrationTest {
     }
 
     @Test
-    void shouldConsumeMessageAndDelegateToIngestUseCase() throws Exception {
-        when(eventApplicationService.ingest(any(KafkaEventDto.class))).thenReturn(EventIngestionResult.STORED);
+    void shouldConsumeMessageAndDelegateToClaimThenProcess() throws Exception {
+        when(eventApplicationService.claimForProcessing(any(KafkaEventDto.class))).thenReturn(EventIngestionResult.STORED);
 
         kafkaTemplate.send("test.raw-events", "evt-it-001", eventJson("evt-it-001")).get(10, TimeUnit.SECONDS);
 
         ArgumentCaptor<KafkaEventDto> captor = ArgumentCaptor.forClass(KafkaEventDto.class);
-        verify(eventApplicationService, timeout(10_000)).ingest(captor.capture());
+        verify(eventApplicationService, timeout(10_000)).claimForProcessing(captor.capture());
+        verify(eventApplicationService, timeout(10_000)).processClaimedEvent(any(KafkaEventDto.class));
         verify(eventApplicationService, never()).markFailedAfterRetries(any(KafkaEventDto.class));
 
         KafkaEventDto captured = captor.getValue();
@@ -84,10 +87,24 @@ class RawEventKafkaListenerIntegrationTest {
         assertThat(captured.eventType()).isEqualTo("BET");
         assertThat(captured.source()).isEqualTo("systemA");
     }
-
+    
     @Test
-    void shouldMarkFailedWhenIngestionThrowsException() throws Exception {
-        when(eventApplicationService.ingest(any(KafkaEventDto.class))).thenThrow(new IllegalStateException("boom"));
+    void shouldSkipProcessingWhenClaimReturnsDuplicate() throws Exception {
+        when(eventApplicationService.claimForProcessing(any(KafkaEventDto.class))).thenReturn(EventIngestionResult.DUPLICATE);
+
+        kafkaTemplate.send("test.raw-events", "evt-it-dup", eventJson("evt-it-dup")).get(10, TimeUnit.SECONDS);
+
+        verify(eventApplicationService, timeout(10_000)).claimForProcessing(any(KafkaEventDto.class));
+        verify(eventApplicationService, never()).processClaimedEvent(any(KafkaEventDto.class));
+        verify(eventApplicationService, never()).markFailedAfterRetries(any(KafkaEventDto.class));
+    }
+    
+    @Test
+    void shouldMarkFailedWhenProcessingClaimedEventThrowsException() throws Exception {
+        when(eventApplicationService.claimForProcessing(any(KafkaEventDto.class))).thenReturn(EventIngestionResult.STORED);
+        doThrow(new IllegalStateException("boom"))
+                .when(eventApplicationService)
+                .processClaimedEvent(any(KafkaEventDto.class));
 
         kafkaTemplate.send("test.raw-events", "evt-it-002", eventJson("evt-it-002")).get(10, TimeUnit.SECONDS);
 
@@ -101,13 +118,14 @@ class RawEventKafkaListenerIntegrationTest {
         CountDownLatch allStarted = new CountDownLatch(3);
         CountDownLatch releaseProcessing = new CountDownLatch(1);
 
-        when(eventApplicationService.ingest(any(KafkaEventDto.class))).thenAnswer(invocation -> {
+        when(eventApplicationService.claimForProcessing(any(KafkaEventDto.class))).thenReturn(EventIngestionResult.STORED);
+        doAnswer(invocation -> {
             workerThreads.add(Thread.currentThread().getName());
             atLeastTwoStarted.countDown();
             allStarted.countDown();
             releaseProcessing.await(5, TimeUnit.SECONDS);
-            return EventIngestionResult.STORED;
-        });
+            return null;
+        }).when(eventApplicationService).processClaimedEvent(any(KafkaEventDto.class));
 
         kafkaTemplate.send("test.raw-events", 0, "evt-par-001", eventJson("evt-par-001")).get(10, TimeUnit.SECONDS);
         kafkaTemplate.send("test.raw-events", 1, "evt-par-002", eventJson("evt-par-002")).get(10, TimeUnit.SECONDS);
@@ -118,7 +136,8 @@ class RawEventKafkaListenerIntegrationTest {
         assertThat(workerThreads.size()).isGreaterThanOrEqualTo(2);
 
         releaseProcessing.countDown();
-        verify(eventApplicationService, timeout(10_000).times(3)).ingest(any(KafkaEventDto.class));
+        verify(eventApplicationService, timeout(10_000).times(3)).claimForProcessing(any(KafkaEventDto.class));
+        verify(eventApplicationService, timeout(10_000).times(3)).processClaimedEvent(any(KafkaEventDto.class));
         verify(eventApplicationService, never()).markFailedAfterRetries(any(KafkaEventDto.class));
     }
 
