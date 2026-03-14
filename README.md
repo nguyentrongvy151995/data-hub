@@ -33,7 +33,7 @@ flowchart LR
     Service -->|retry failed| Dlt
     Service -->|exhausted retries| Park
 ```
-#### Level 2 - Container View (bên trong Data Hub)
+#### Level 2 - Container View
 
 ```mermaid
 flowchart LR
@@ -89,22 +89,29 @@ sequenceDiagram
     participant K as Kafka Topic (raw-events)
     participant L as RawEventKafkaListener
     participant S as EventApplicationService
-    participant P as EventStorePort
+    participant D as Kafka Topic (raw-events-dlt)
+    participant PK as Kafka Topic (raw-events-parking-lot)
     participant DB as MongoDB(raw_event)
 
     K->>L: message (eventId, eventType, source, payload, createdAt)
     L->>L: parse + validate
     L->>S: ingest(eventDto)
-    S->>P: saveIfAbsent(event)
-    P->>DB: insert(raw_event)
 
-    alt STORED
-        S->>S: processEventWithTimeout
-        S->>P: updateStatusByEventId(SUCCESS)
+    alt STORED or DUPLICATE
+        S-->>L: result
         L->>L: ack offset
-    else DUPLICATE
-        S-->>L: DUPLICATE
-        L->>L: ack offset (skip business logic)
+    else Exception at attempt n
+        L->>D: publish failure envelope (MAIN_TO_DLT)
+
+        alt n < totalAttempts
+            L->>L: sleep backoff
+            L->>S: retry ingest(eventDto)
+        else n = totalAttempts
+            L->>S: markFailedAfterRetries(eventDto)
+            S->>DB: update status = FAILED
+            L->>PK: publish failure envelope (DLT_TO_PARKING_LOT)
+            L->>L: ack offset
+        end
     end
 ```
 
