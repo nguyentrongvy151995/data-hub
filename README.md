@@ -212,15 +212,63 @@ Mục tiêu: lưu event thô + trạng thái xử lý để support ingest idemp
 3. Nếu service crash trước khi `ack`, Kafka sẽ deliver lại; duplicate được chặn bởi unique `eventId` + claim/reclaim atomic.
 4. Message xử lý thất bại cuối cùng vẫn được giữ ở DLT (kèm payload + metadata lỗi) để điều tra/replay, tránh thất lạc dữ liệu.
 
-## 5. Chạy local nhanh
+## 5. Scaling Strategy
 
-### 5.1 Start dependencies
+Nếu lưu lượng message tăng gấp 10 lần, hệ thống có thể scale theo các trục sau:
+
+1. **Scale Kafka partition**
+- Tăng partition của topic chính và DLT (ví dụ từ `3` lên `12` hoặc `24`) để tăng mức song song.
+- Giữ key theo `eventId` để cùng một `eventId` luôn vào cùng partition (giữ ordering theo key).
+
+2. **Scale ngang consumer instance**
+- Chạy nhiều instance Data Hub cùng `group-id` để Kafka rebalance partition cho các instance.
+- Dùng autoscaling theo `consumer lag`, CPU, và memory.
+
+3. **Tune consumer throughput**
+- Điều chỉnh `spring.kafka.listener.concurrency`, `max.poll.records`, `pollTimeout`, `retry.backoff-ms` theo tải thực tế.
+- Tách business logic nặng thành bước xử lý bất đồng bộ nếu thời gian xử lý mỗi event tăng cao.
+
+4. **Scale MongoDB**
+- Dùng replica set để tăng độ sẵn sàng; khi tải ghi tăng mạnh, cân nhắc sharding.
+- Giữ index chính xác theo pattern truy vấn (`eventId`, `status`, `updatedAt`, `sourceSystem`) để tránh full scan.
+
+5. **Observability + capacity planning**
+- Theo dõi các chỉ số: Kafka lag, tỉ lệ DLT, latency xử lý event, lỗi Mongo write.
+- Chạy load test theo từng mức (2x, 5x, 10x) và chốt ngưỡng scale trước khi lên production.
+
+## 6. Trade-offs
+
+Các quyết định kỹ thuật hiện tại và hạn chế đi kèm:
+
+1. **At-least-once delivery**
+- Ưu điểm: giảm nguy cơ mất message.
+- Đánh đổi: duplicate có thể xảy ra, cần idempotency (`unique eventId` + claim/reclaim).
+
+2. **Manual ack sau khi có kết quả cuối**
+- Ưu điểm: kiểm soát được thời điểm commit offset.
+- Đánh đổi: độ trễ xử lý tăng, đặc biệt khi retry/backoff hoặc publish DLT đồng bộ.
+
+3. **Lưu `payload` dạng string**
+- Ưu điểm: linh hoạt với schema upstream thay đổi.
+- Đánh đổi: khó query sâu theo field trong payload, khó tối ưu index cho field động.
+
+4. **Model status đơn giản (`PROCESSING`, `SUCCESS`, `FAILED_RETRYABLE`, `FAILED`)**
+- Ưu điểm: dễ vận hành và dễ đọc trạng thái.
+- Đánh đổi: chưa có lịch sử state transition chi tiết (audit trail theo từng bước).
+
+5. **Reclaim chỉ cho `FAILED_RETRYABLE`**
+- Ưu điểm: đơn giản, tránh nhiều nhánh trạng thái phức tạp.
+- Đánh đổi: nếu instance chết sau khi claim nhưng trước khi cập nhật trạng thái, record có thể bị kẹt ở `PROCESSING` và cần cơ chế recovery riêng (timeout/lease scheduler).
+
+## 7. Chạy local nhanh
+
+### 7.1 Start dependencies
 
 ```bash
 docker compose up -d
 ```
 
-### 5.2 Run app
+### 7.2 Run app
 
 ```bash
 ./mvnw spring-boot:run
@@ -228,7 +276,7 @@ docker compose up -d
 
 App mặc định chạy tại `http://localhost:8084`.
 
-### 5.3 Run test
+### 7.3 Run test
 
 ```bash
 ./mvnw test
