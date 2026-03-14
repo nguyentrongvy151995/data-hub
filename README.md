@@ -93,37 +93,20 @@ sequenceDiagram
     participant D as Kafka DLT (partitions = 3)
     participant P as Kafka parking-lot (partitions = 3)
 
-    K->>L: B1. Receive message
-    L->>L: Parse + validate payload
+    K->>L: message
 
-    alt Parse/validate FAIL
-        L->>D: Publish failure (MAIN_TO_DLT)
-        alt Con retry
-            L->>L: Backoff
-            L->>L: Re-consume and re-validate
-        else Het retry
-            opt Parseable payload
-                L->>S: markFailedAfterRetries(eventDto)
-                S->>DB: Update status = FAILED
-            end
-            L->>P: Publish failure (DLT_TO_PARKING_LOT)
-            L->>L: ACK offset
-        end
+    alt parse + validate OK
+        L->>S: ingest(eventDto)
+        S->>DB: saveIfAbsent(eventId)\n(check duplicate first, atomic)
 
-    else Parse/validate OK
-        L->>S: B2. ingest(eventDto)
-        S->>DB: B3. Check duplicate eventId (atomic)
-
-        alt Duplicate eventId
+        alt DUPLICATE
             DB-->>S: DUPLICATE
             S-->>L: DUPLICATE
-            Note over L,S: Skip business logic
-            L->>L: ACK offset
-
-        else New eventId
-            DB-->>S: NOT_DUPLICATE
-            S->>DB: B4. Insert raw_event with status=PENDING (processing)
-            S->>S: B5. Process business logic
+            Note over L,S: Skip business processing
+            L->>L: ACK offset (done)
+        else STORED
+            DB-->>S: STORED
+            S->>S: process business logic
 
             alt business success
                 S->>DB: update status = SUCCESS
