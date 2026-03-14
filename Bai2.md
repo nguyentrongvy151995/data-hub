@@ -82,6 +82,6 @@ db.transactions.aggregate([
 1. Vì sao các query trên có thể chậm khi dữ liệu lớn
 - transactions đang là bảng lớn nhất (~10M, tăng 100k/ngày), nên query nào không có điều kiện tốt hoặc query không đúng field được đánh index sẽ thành COLLSCAN (COLLSCAN là viết tắt của Collection Scan: MongoDB phải quét toàn bộ collection (tất cả document) để tìm dữ liệu phù với câu query).
 - Khi working set vượt RAM, Mongo phải đọc dữ liệu ở đĩa nhiều hơn (oage fault) nên độ trễ sẽ tăng lên.
-`
+```
 - Giải thích:
-`
+```
