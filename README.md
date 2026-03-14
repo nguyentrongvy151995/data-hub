@@ -23,15 +23,13 @@ flowchart LR
     Service["Data Hub Service\n(Spring Boot)"]
     Raw["Kafka topic: data-hub.user-orders\n(partitions = 3)"]
     Dlt["Kafka topic: data-hub.user-orders.DLT\n(partitions = 3)"]
-    Park["Kafka topic: data-hub.user-orders.parking-lot\n(partitions = 3)"]
     Mongo[("MongoDB\nraw_event, person")]
 
     Client -->|REST API| Service
     Producer -->|publish events| Raw
     Raw -->|consume| Service
     Service -->|persist + query| Mongo
-    Service -->|retry failed| Dlt
-    Service -->|exhausted retries| Park
+    Service -->|failed after retries| Dlt
 ```
 #### Level 2 - Container View
 
@@ -91,7 +89,6 @@ sequenceDiagram
     participant S as EventApplicationService
     participant DB as MongoDB
     participant D as Kafka DLT (partitions = 3)
-    participant P as Kafka parking-lot (partitions = 3)
 
     K->>L: receive message
     L->>L: Step 1 - Validate data
@@ -121,7 +118,6 @@ sequenceDiagram
     end
 
     opt Unified retry flow (for any exception)
-        L->>D: publish failure (MAIN_TO_DLT)
         alt còn retry
             L->>L: backoff
             L->>L: retry from Step 1 (validate again)
@@ -130,7 +126,7 @@ sequenceDiagram
                 L->>S: markFailedAfterRetries(eventDto)
                 S->>DB: update status = FAILED
             end
-            L->>P: publish failure (DLT_TO_PARKING_LOT)
+            L->>D: publish failure (MAIN_TO_DLT)
             L->>L: ACK offset (done)
         end
     end
@@ -144,8 +140,8 @@ sequenceDiagram
 4. Nếu không duplicate thì chạy business logic và cập nhật `SUCCESS`.
 5. Mọi lỗi (validate fail hoặc business fail) đều đi vào một retry flow chung.
 6. Retry luôn chạy lại từ Step 1 (validate lại toàn bộ message).
-7. Mỗi lần fail publish envelope sang DLT (`data-hub.user-orders.DLT`).
-8. Khi hết retry: cập nhật `FAILED` (nếu parseable), publish parking-lot (`data-hub.user-orders.parking-lot`), rồi `ack` offset.
+7. Chỉ khi hết retry mới publish envelope sang DLT (`data-hub.user-orders.DLT`).
+8. Khi hết retry: cập nhật `FAILED` (nếu parseable), publish DLT, rồi `ack` offset.
 ### 2.2 Luồng REST command/query
 
 #### Command flow (`POST/PUT/DELETE /api/events`)

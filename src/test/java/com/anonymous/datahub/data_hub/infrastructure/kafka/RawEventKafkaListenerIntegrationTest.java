@@ -43,14 +43,12 @@ import static org.mockito.Mockito.when;
         "app.kafka.test.random-failure-enabled=false",
         "app.kafka.topic.raw-events=test.raw-events",
         "app.kafka.topic.raw-events-dlt=test.raw-events.DLT",
-        "app.kafka.topic.raw-events-parking-lot=test.raw-events.parking-lot",
         "app.kafka.topic.raw-events.partitions=3",
         "app.kafka.topic.raw-events.replicas=1"
 })
 @EmbeddedKafka(partitions = 3, topics = {
         "test.raw-events",
-        "test.raw-events.DLT",
-        "test.raw-events.parking-lot"
+        "test.raw-events.DLT"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class RawEventKafkaListenerIntegrationTest {

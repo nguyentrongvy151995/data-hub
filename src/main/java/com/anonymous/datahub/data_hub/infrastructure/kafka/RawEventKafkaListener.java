@@ -4,6 +4,7 @@ import com.anonymous.datahub.data_hub.application.dto.EventIngestionResult;
 import com.anonymous.datahub.data_hub.application.dto.KafkaEventDto;
 import com.anonymous.datahub.data_hub.application.usecase.IngestEventUseCase;
 import com.anonymous.datahub.data_hub.shared.exception.InvalidEventException;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -36,7 +37,6 @@ public class RawEventKafkaListener {
     private final IngestEventUseCase ingestEventUseCase;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final String dltTopic;
-    private final String parkingLotTopic;
     private final int maxRetryAttempts;
     private final long retryBackoffMs;
     private final long sendTimeoutMs;
@@ -49,7 +49,6 @@ public class RawEventKafkaListener {
             IngestEventUseCase ingestEventUseCase,
             KafkaTemplate<String, String> kafkaTemplate,
             @Value("${app.kafka.topic.raw-events-dlt:${app.kafka.topic.raw-events}.DLT}") String dltTopic,
-            @Value("${app.kafka.topic.raw-events-parking-lot:${app.kafka.topic.raw-events}.parking-lot}") String parkingLotTopic,
             @Value("${app.kafka.retry.max-attempts:2}") int maxRetryAttempts,
             @Value("${app.kafka.retry.backoff-ms:1000}") long retryBackoffMs,
             @Value("${app.kafka.producer.send-timeout-ms:5000}") long sendTimeoutMs,
@@ -61,7 +60,6 @@ public class RawEventKafkaListener {
         this.ingestEventUseCase = ingestEventUseCase;
         this.kafkaTemplate = kafkaTemplate;
         this.dltTopic = dltTopic;
-        this.parkingLotTopic = parkingLotTopic;
         this.maxRetryAttempts = maxRetryAttempts;
         this.retryBackoffMs = retryBackoffMs;
         this.sendTimeoutMs = sendTimeoutMs;
@@ -110,19 +108,9 @@ public class RawEventKafkaListener {
                 return;
             } catch (Exception ex) {
                 String eventId = resolveEventId(parsedEvent, extractedEventId, key);
-                publishFailureEvent(
-                        dltTopic,
-                        eventId,
-                        message,
-                        topic,
-                        partition,
-                        offset,
-                        attempt,
-                        ex,
-                        "MAIN_TO_DLT"
-                );
+                boolean retryable = isRetryableException(ex);
 
-                if (attempt < totalAttempts) {
+                if (retryable && attempt < totalAttempts) {
                     log.warn(
                             "[KAFKA][RETRY] thread={} eventId={} attempt={}/{} partition={} offset={} reason={}",
                             threadName,
@@ -137,6 +125,19 @@ public class RawEventKafkaListener {
                     continue;
                 }
 
+                if (!retryable) {
+                    log.warn(
+                            "[KAFKA][NON-RETRYABLE] thread={} eventId={} attempt={}/{} partition={} offset={} reason={}",
+                            threadName,
+                            eventId,
+                            attempt,
+                            totalAttempts,
+                            partition,
+                            offset,
+                            ex.getMessage()
+                    );
+                }
+
                 if (parsedEvent != null) {
                     ingestEventUseCase.markFailedAfterRetries(parsedEvent);
                 } else {
@@ -149,7 +150,7 @@ public class RawEventKafkaListener {
                 }
 
                 publishFailureEvent(
-                        parkingLotTopic,
+                        dltTopic,
                         eventId,
                         message,
                         topic,
@@ -157,12 +158,12 @@ public class RawEventKafkaListener {
                         offset,
                         attempt,
                         ex,
-                        "DLT_TO_PARKING_LOT"
+                        "MAIN_TO_DLT"
                 );
 
                 acknowledgment.acknowledge();
                 log.error(
-                        "[KAFKA][PARKING-LOT] thread={} eventId={} attempt={}/{} partition={} offset={} mainOffsetAcked=true",
+                        "[KAFKA][DLT] thread={} eventId={} attempt={}/{} partition={} offset={} mainOffsetAcked=true",
                         threadName,
                         eventId,
                         attempt,
@@ -230,6 +231,10 @@ public class RawEventKafkaListener {
             return key;
         }
         return "unknown";
+    }
+
+    private boolean isRetryableException(Exception ex) {
+        return !(ex instanceof InvalidEventException || ex instanceof JsonProcessingException);
     }
 
     private String extractEventId(String message) {
