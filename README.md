@@ -150,15 +150,6 @@ sequenceDiagram
 6. Khi business fail retryable, service set `FAILED_RETRYABLE` (không delete record).
 7. Retry luôn quay lại từ Step 1; chỉ retry với lỗi retryable.
 8. Hết retry: `markFailedAfterRetries` -> `FAILED` -> publish DLT -> `ack`.
-### 2.2 Luồng REST command/query
-
-#### Command flow (`POST/PUT/DELETE /api/events`)
-
-`Controller -> RestRequestMapper -> ManageEventUseCase(EventApplicationService) -> EventStorePort -> MongoEventStoreAdapter -> RawEventMongoRepository -> MongoDB`
-
-#### Query flow (`GET /api/events`, `GET /api/events/{eventId}`, `GET /api/reports/ingestion-summary`)
-
-`Controller -> QueryEventUseCase(EventApplicationService) -> EventStorePort -> Mongo adapter/repository -> MongoDB -> RestResponseMapper -> response`
 
 ## 3. Tài liệu thiết kế DB
 
@@ -193,43 +184,15 @@ Mục tiêu: lưu event thô + trạng thái xử lý để support ingest idemp
 4. **Index `updatedAt`** phục vụ filter theo cửa sổ thời gian cho report; **index `sourceSystem`** phục vụ tra cứu và mở rộng truy vấn theo nguồn.
 5. **Lưu `payload` dạng string** để giữ nguyên raw event, tránh coupling chặt vào schema payload động từ upstream.
 
-### 3.2 Collection `person`
+## 4. Chạy local nhanh
 
-Mục tiêu: module CRUD đơn giản để minh họa thêm một aggregate khác.
-
-Schema:
-- `id`
-- `name`
-- `age`
-
-Hiện chưa có index custom vì use case hiện tại chỉ tạo mới, chưa có truy vấn phức tạp.
-
-### 3.3 Consistency và duplicate handling
-
-- Duplicate được chặn ở tầng DB (unique index) và phản ánh lên service qua `DUPLICATE`.
-- Consumer dùng manual ack (`MANUAL_IMMEDIATE`) + `enable-auto-commit=false` để tránh mất message khi service restart.
-- Semantics hiện tại là **at-least-once** (ưu tiên không mất dữ liệu; có thể nhận duplicate và xử lý idempotent theo `eventId`).
-
-## 4. API chính
-
-- `GET /ping`
-- `POST /api/events`
-- `PUT /api/events/{eventId}`
-- `DELETE /api/events/{eventId}`
-- `GET /api/events`
-- `GET /api/events/{eventId}`
-- `GET /api/reports/ingestion-summary?from=&to=`
-- `POST /api/person`
-
-## 5. Chạy local nhanh
-
-### 5.1 Start dependencies
+### 4.1 Start dependencies
 
 ```bash
 docker compose up -d
 ```
 
-### 5.2 Run app
+### 4.2 Run app
 
 ```bash
 ./mvnw spring-boot:run
@@ -237,7 +200,7 @@ docker compose up -d
 
 App mặc định chạy tại `http://localhost:8084`.
 
-### 5.3 Run test
+### 4.3 Run test
 
 ```bash
 ./mvnw test
