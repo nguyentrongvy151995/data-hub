@@ -128,11 +128,12 @@ sequenceDiagram
         end
 
     else Step 1 FAIL
-        L->>D: publish failure (MAIN_TO_DLT)
         alt còn retry
+            L->>D: publish failure (MAIN_TO_DLT)
             L->>L: backoff
-            L->>L: re-consume and re-validate
+            L->>L: retry validate (attempt n+1)
         else hết retry
+            L->>D: publish failure (MAIN_TO_DLT)
             opt parseable payload
                 L->>S: markFailedAfterRetries(eventDto)
                 S->>DB: update status = FAILED
@@ -149,7 +150,7 @@ sequenceDiagram
 2. Step 2: service check duplicate bằng `saveIfAbsent(eventId, status=PROCESSING)` theo kiểu atomic (`insert-if-absent`).
 3. Nếu duplicate (`eventId` đã có) thì trả `DUPLICATE`, skip business logic, và listener `ack`.
 4. Nếu không duplicate thì mới chạy business logic và cập nhật trạng thái xử lý.
-5. Listener retry trong cùng lần consume theo `app.kafka.retry.max-attempts` khi có exception.
+5. Nếu Step 1 validate fail thì listener vẫn retry trong cùng lần consume theo `app.kafka.retry.max-attempts`.
 6. Mỗi lần fail sẽ publish envelope sang topic DLT (`data-hub.user-orders.DLT`).
 7. Khi hết retry:
 - gọi `markFailedAfterRetries` để set `FAILED` trong DB,
