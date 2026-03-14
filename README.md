@@ -89,20 +89,25 @@ sequenceDiagram
     participant K as Kafka main (partitions = 3)
     participant L as RawEventKafkaListener
     participant S as EventApplicationService
+    participant DB as MongoDB
     participant D as Kafka DLT (partitions = 3)
     participant P as Kafka parking-lot (partitions = 3)
-    participant DB as MongoDB
 
     K->>L: message
     L->>L: parse + validate
     L->>S: ingest(eventDto)
+    S->>DB: saveIfAbsent(eventId)\n(atomic insert-if-absent)
 
-    alt STORED
-        S-->>L: STORED
-        L->>L: ACK offset (done)
-    else DUPLICATE
+    alt DUPLICATE (eventId already exists)
+        DB-->>S: DUPLICATE
         S-->>L: DUPLICATE
         Note over L,S: Skip business processing
+        L->>L: ACK offset (done)
+    else STORED (claim idempotency success)
+        DB-->>S: STORED
+        S->>S: process business logic
+        S->>DB: update status = SUCCESS
+        S-->>L: STORED
         L->>L: ACK offset (done)
     else FAIL (parse/validate/ingest exception)
         L->>D: publish failure (MAIN_TO_DLT)
@@ -120,13 +125,14 @@ sequenceDiagram
 ```
 #### Nhánh lỗi và retry
 
-1. Listener retry trong cùng lần consume theo `app.kafka.retry.max-attempts`.
-2. Mỗi lần fail sẽ publish envelope sang topic DLT (`data-hub.user-orders.DLT`).
-3. Khi hết retry:
+1. Bước đầu trong `ingest` là `saveIfAbsent(eventId)` theo kiểu atomic (`insert-if-absent`) để claim idempotency.
+2. Nếu duplicate (`eventId` đã có), service trả `DUPLICATE`, bỏ qua business logic, rồi listener `ack`.
+3. Listener retry trong cùng lần consume theo `app.kafka.retry.max-attempts` khi có exception.
+4. Mỗi lần fail sẽ publish envelope sang topic DLT (`data-hub.user-orders.DLT`).
+5. Khi hết retry:
 - gọi `markFailedAfterRetries` để set `FAILED` trong DB,
 - publish thêm sang parking-lot (`data-hub.user-orders.parking-lot`),
 - rồi `ack` offset để tránh stuck consumer.
-
 ### 2.2 Luồng REST command/query
 
 #### Command flow (`POST/PUT/DELETE /api/events`)
