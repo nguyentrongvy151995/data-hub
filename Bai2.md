@@ -81,7 +81,43 @@ db.transactions.aggregate([
 ## Phân tích vấn đề performance
 1. Vì sao các query trên có thể chậm khi dữ liệu lớn
 - transactions đang là bảng lớn nhất (~10M, tăng 100k/ngày), nên query nào không có điều kiện tốt hoặc query không đúng field được đánh index sẽ thành COLLSCAN (COLLSCAN là viết tắt của Collection Scan: MongoDB phải quét toàn bộ collection (tất cả document) để tìm dữ liệu phù với câu query).
-- Khi working set vượt RAM, Mongo phải đọc dữ liệu ở đĩa nhiều hơn (oage fault) nên độ trễ sẽ tăng lên.
+- Khi working set vượt RAM, Mongo phải đọc dữ liệu ở đĩa nhiều hơn (page fault) nên độ trễ sẽ tăng lên.
 ```
-- Giải thích:
+Giải thích:
+
+1. Page fault: xảy ra khi dữ liệu cần truy cập không nằm trong RAM nên hệ thống phải đọc từ disk vào RAM.
+2. Ví dụ thực tế:
+- MongoDB chạy trên một server có tài nguyên phần cứng như sau:
+    + RAM: 8GB (dùng RAM để cache dữ liệu thường dùng)
+    + CPU
+    + Disk: SSD 500 GB (Toàn bộ dữ liệu MongoDB lưu trên disk)
+- RAM không thể chứa hết dữ liệu nên khi query.
+    + Trường hợp 1 — dữ liệu nằm trong RAM:
+        Query
+        ↓
+        RAM có data
+        ↓
+        trả kết quả
+        => kết quả trả về rất nhanh.
+
+    + Trường hợp 2 — RAM không có data:
+        Query
+        ↓
+        RAM không có
+        ↓
+        MongoDB đọc từ Disk (SSD)
+        ↓
+        đưa vào RAM
+        ↓
+        trả kết quả
+        => chậm hơn rất nhiều
+    => Vì vậy tốt nhất “Working set phải nhỏ hơn RAM”.
+    Để làm được việc này chúng ta có thể kiểm soát working set gián tiếp:
+        - Thêm RAM (cách đơn giản nhất)
+        - Archive dữ liệu cũ (chuyển dữ liệu ít dùng ra khỏi collection chính)
+        - Tối ưu index (quan trọng)
+        - Query đúng index
+        - TTL index (xoá dữ liệu cũ)
+        - Dùng projection (lấy những field cần dùng, giảm data load).
+        - Sharding chia một collection lớn thành nhiều phần và phân tán lên nhiều node Mongo (Cách này vận hành phức tạp, trừ khi dữ liệu quá lớn mới áp dụng).
 ```
