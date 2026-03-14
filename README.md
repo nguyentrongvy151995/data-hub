@@ -125,34 +125,50 @@ sequenceDiagram
             S->>DB: B4. Insert raw_event with status=PENDING (processing)
             S->>S: B5. Process business logic
 
-            alt Business SUCCESS
-                S->>DB: Update status = SUCCESS
+            alt business success
+                S->>DB: update status = SUCCESS
                 S-->>L: STORED
-                L->>L: ACK offset
-            else Business FAIL
-                S-->>L: Throw exception
-                L->>D: Publish failure (MAIN_TO_DLT)
-                alt Con retry
-                    L->>L: Backoff
-                    L->>S: Retry ingest(eventDto)
-                else Het retry
+                L->>L: ACK offset (done)
+            else business fail
+                L->>D: publish failure (MAIN_TO_DLT)
+                alt còn retry
+                    L->>L: backoff
+                    L->>S: retry ingest(eventDto)
+                else hết retry
                     L->>S: markFailedAfterRetries(eventDto)
-                    S->>DB: Update status = FAILED
-                    L->>P: Publish failure (DLT_TO_PARKING_LOT)
-                    L->>L: ACK offset
+                    S->>DB: update status = FAILED
+                    L->>P: publish failure (DLT_TO_PARKING_LOT)
+                    L->>L: ACK offset (done)
                 end
             end
         end
-    end
-```
 
+    else parse + validate FAIL
+        L->>D: publish failure (MAIN_TO_DLT)
+        alt còn retry
+            L->>L: backoff
+            L->>L: re-consume and re-validate
+        else hết retry
+            opt parseable payload
+                L->>S: markFailedAfterRetries(eventDto)
+                S->>DB: update status = FAILED
+            end
+            L->>P: publish failure (DLT_TO_PARKING_LOT)
+            L->>L: ACK offset (done)
+        end
+    end
+
+```
 #### Nhánh lỗi và retry
 
-1. B1: Nhận message từ Kafka, parse + validate trước.
-2. B2-B3: Với payload hợp lệ, gọi `ingest` để check duplicate `eventId` theo kiểu atomic.
-3. Nếu duplicate: skip business logic, `ack` ngay.
-4. Nếu không duplicate: insert record mới với trạng thái `PENDING` (đang processing), sau đó mới chạy business logic.
-5. Nếu lỗi: publish DLT, retry theo `app.kafka.retry.max-attempts`; hết retry thì mark `FAILED`, publish parking-lot, rồi `ack`.
+1. Bước đầu trong `ingest` là `saveIfAbsent(eventId)` theo kiểu atomic (`insert-if-absent`) để claim idempotency.
+2. Nếu duplicate (`eventId` đã có), service trả `DUPLICATE`, bỏ qua business logic, rồi listener `ack`.
+3. Listener retry trong cùng lần consume theo `app.kafka.retry.max-attempts` khi có exception.
+4. Mỗi lần fail sẽ publish envelope sang topic DLT (`data-hub.user-orders.DLT`).
+5. Khi hết retry:
+- gọi `markFailedAfterRetries` để set `FAILED` trong DB,
+- publish thêm sang parking-lot (`data-hub.user-orders.parking-lot`),
+- rồi `ack` offset để tránh stuck consumer.
 ### 2.2 Luồng REST command/query
 
 #### Command flow (`POST/PUT/DELETE /api/events`)
