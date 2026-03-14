@@ -86,11 +86,11 @@ Cách đọc:
 
 ```mermaid
 sequenceDiagram
-    participant K as Kafka Topic (raw-events)
+    participant K as Kafka Topic (data-hub.user-orders)
     participant L as RawEventKafkaListener
     participant S as EventApplicationService
-    participant D as Kafka Topic (raw-events-dlt)
-    participant PK as Kafka Topic (raw-events-parking-lot)
+    participant D as Kafka Topic (data-hub.user-orders.DLT)
+    participant PK as Kafka Topic (data-hub.user-orders.parking-lot)
     participant DB as MongoDB(raw_event)
 
     K->>L: message (eventId, eventType, source, payload, createdAt)
@@ -118,10 +118,10 @@ sequenceDiagram
 #### Nhánh lỗi và retry
 
 1. Listener retry trong cùng lần consume theo `app.kafka.retry.max-attempts`.
-2. Mỗi lần fail sẽ publish envelope sang topic DLT (`raw-events-dlt`).
+2. Mỗi lần fail sẽ publish envelope sang topic DLT (`data-hub.user-orders.DLT`).
 3. Khi hết retry:
 - gọi `markFailedAfterRetries` để set `FAILED` trong DB,
-- publish thêm sang parking-lot (`raw-events-parking-lot`),
+- publish thêm sang parking-lot (`data-hub.user-orders.parking-lot`),
 - rồi `ack` offset để tránh stuck consumer.
 
 ### 2.2 Luồng REST command/query
