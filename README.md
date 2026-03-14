@@ -94,29 +94,48 @@ sequenceDiagram
     participant P as Kafka parking-lot (partitions = 3)
 
     K->>L: message
-    L->>L: parse + validate
-    L->>S: ingest(eventDto)
-    S->>DB: saveIfAbsent(eventId)\n(atomic insert-if-absent)
 
-    alt DUPLICATE (eventId already exists)
-        DB-->>S: DUPLICATE
-        S-->>L: DUPLICATE
-        Note over L,S: Skip business processing
-        L->>L: ACK offset (done)
-    else STORED (claim idempotency success)
-        DB-->>S: STORED
-        S->>S: process business logic
-        S->>DB: update status = SUCCESS
-        S-->>L: STORED
-        L->>L: ACK offset (done)
-    else FAIL (parse/validate/ingest exception)
+    alt parse + validate OK
+        L->>S: ingest(eventDto)
+        S->>DB: saveIfAbsent(eventId)\n(check duplicate first, atomic)
+
+        alt DUPLICATE
+            DB-->>S: DUPLICATE
+            S-->>L: DUPLICATE
+            Note over L,S: Skip business processing
+            L->>L: ACK offset (done)
+        else STORED
+            DB-->>S: STORED
+            S->>S: process business logic
+
+            alt business success
+                S->>DB: update status = SUCCESS
+                S-->>L: STORED
+                L->>L: ACK offset (done)
+            else business fail
+                L->>D: publish failure (MAIN_TO_DLT)
+                alt còn retry
+                    L->>L: backoff
+                    L->>S: retry ingest(eventDto)
+                else hết retry
+                    L->>S: markFailedAfterRetries(eventDto)
+                    S->>DB: update status = FAILED
+                    L->>P: publish failure (DLT_TO_PARKING_LOT)
+                    L->>L: ACK offset (done)
+                end
+            end
+        end
+
+    else parse + validate FAIL
         L->>D: publish failure (MAIN_TO_DLT)
         alt còn retry
             L->>L: backoff
-            L->>S: retry ingest(eventDto)
+            L->>L: re-consume and re-validate
         else hết retry
-            L->>S: markFailedAfterRetries(eventDto)
-            S->>DB: update status = FAILED
+            opt parseable payload
+                L->>S: markFailedAfterRetries(eventDto)
+                S->>DB: update status = FAILED
+            end
             L->>P: publish failure (DLT_TO_PARKING_LOT)
             L->>L: ACK offset (done)
         end
