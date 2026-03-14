@@ -17,20 +17,22 @@ Dự án Spring Boot xử lý event theo mô hình Clean/Hexagonal Architecture:
 #### Level 1 - System Context
 
 ```mermaid
-flowchart TB
-    Client["Client Applications\n(Web/Mobile/Backend)"]
+flowchart LR
+    Client["Client Apps\n(Web/Mobile/Backend)"]
     Producer["External Event Producers"]
-    Kafka[("Kafka Cluster\nraw-events / DLT / parking-lot")]
-    DataHub["Data Hub Service\nSpring Boot"]
-    Mongo[("MongoDB")]
+    Service["Data Hub Service\n(Spring Boot)"]
+    Raw["Kafka topic: data-hub.user-orders"]
+    Dlt["Kafka topic: data-hub.user-orders.DLT"]
+    Park["Kafka topic: data-hub.user-orders.parking-lot"]
+    Mongo[("MongoDB\nraw_event, person")]
 
-    Client -- "REST/JSON" --> DataHub
-    Producer -- "Publish events" --> Kafka
-    Kafka -- "Consume raw-events" --> DataHub
-    DataHub -- "Persist + Query" --> Mongo
-    DataHub -- "Publish failed events" --> Kafka
+    Client -->|REST API| Service
+    Producer -->|publish events| Raw
+    Raw -->|consume| Service
+    Service -->|persist + query| Mongo
+    Service -->|retry failed| Dlt
+    Service -->|exhausted retries| Park
 ```
-
 #### Level 2 - Container View (bên trong Data Hub)
 
 ```mermaid
