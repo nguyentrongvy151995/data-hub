@@ -97,10 +97,14 @@ sequenceDiagram
     L->>L: parse + validate
     L->>S: ingest(eventDto)
 
-    alt SUCCESS PATH (STORED or DUPLICATE)
-        S-->>L: result
+    alt STORED
+        S-->>L: STORED
         L->>L: ACK offset (done)
-    else FAIL PATH (parse/validate/ingest exception)
+    else DUPLICATE
+        S-->>L: DUPLICATE
+        Note over L,S: Skip business processing
+        L->>L: ACK offset (done)
+    else FAIL (parse/validate/ingest exception)
         L->>D: publish failure (MAIN_TO_DLT)
         alt còn retry
             L->>L: backoff
@@ -114,7 +118,6 @@ sequenceDiagram
     end
 
 ```
-
 #### Nhánh lỗi và retry
 
 1. Listener retry trong cùng lần consume theo `app.kafka.retry.max-attempts`.
