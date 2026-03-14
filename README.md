@@ -101,7 +101,7 @@ sequenceDiagram
         L->>D: publish failure (MAIN_TO_DLT)
         L->>L: ACK offset (done)
     else Step 1 OK
-        L->>S: Step 2 - Claim ownership by eventId
+        L->>S: Step 2 - Nhận quyền xử lý theo eventId
         S->>DB: saveIfAbsent(eventId, status=PROCESSING)
 
         alt inserted (first claim)
