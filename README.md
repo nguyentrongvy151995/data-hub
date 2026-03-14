@@ -25,7 +25,7 @@ flowchart TB
         MONGO[("MongoDB")]
     end
 
-    subgraph APP[Data Hub Service (Spring Boot)]
+    subgraph APP[Data Hub Service - Spring Boot]
         subgraph IFACE[interfaces]
             ECMD["EventCommandController\nPOST/PUT/DELETE /api/events"]
             EQRY["EventQueryController\nGET /api/events"]
