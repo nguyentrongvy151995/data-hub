@@ -271,16 +271,7 @@ docker compose ps
 curl http://localhost:8084/ping
 ```
 
-### 7.2 Start project khi chạy service từ source (optional)
-
-```bash
-docker compose up -d mongo kafka kafka-ui
-export MONGODB_URI='mongodb://datahub:datahub@localhost:27018/data_hub?authSource=admin&directConnection=true'
-export KAFKA_BOOTSTRAP_SERVERS='localhost:9092'
-./mvnw spring-boot:run
-```
-
-### 7.3 URL/URI cho dev
+### 7.2 URL/URI cho dev
 
 - App health check: `http://localhost:8084/ping`
 - Kafka UI: `http://localhost:18080`
@@ -289,7 +280,7 @@ export KAFKA_BOOTSTRAP_SERVERS='localhost:9092'
 - Kafka bootstrap server (local tool/service local): `localhost:9092`
 - Kafka bootstrap server (service trong Docker network): `kafka:29092`
 
-### 7.4 Run test
+### 7.3 Run test
 
 ```bash
 ./mvnw test
