@@ -93,18 +93,19 @@ sequenceDiagram
     participant D as Kafka DLT (partitions = 3)
     participant P as Kafka parking-lot (partitions = 3)
 
-    K->>L: message
+    K->>L: receive message
+    L->>L: Step 1 - Validate data
 
-    alt parse + validate OK
-        L->>S: ingest(eventDto)
-        S->>DB: saveIfAbsent(eventId)\n(check duplicate first, atomic)
+    alt Step 1 OK
+        L->>S: Step 2 - Check duplicate eventId
+        S->>DB: saveIfAbsent(eventId, status=PROCESSING)\n(atomic insert-if-absent)
 
-        alt DUPLICATE
+        alt Duplicate eventId -> SKIP
             DB-->>S: DUPLICATE
             S-->>L: DUPLICATE
             Note over L,S: Skip business processing
             L->>L: ACK offset (done)
-        else STORED
+        else Not duplicate -> Continue flow
             DB-->>S: STORED
             S->>S: process business logic
 
@@ -126,7 +127,7 @@ sequenceDiagram
             end
         end
 
-    else parse + validate FAIL
+    else Step 1 FAIL
         L->>D: publish failure (MAIN_TO_DLT)
         alt còn retry
             L->>L: backoff
@@ -144,11 +145,13 @@ sequenceDiagram
 ```
 #### Nhánh lỗi và retry
 
-1. Bước đầu trong `ingest` là `saveIfAbsent(eventId)` theo kiểu atomic (`insert-if-absent`) để claim idempotency.
-2. Nếu duplicate (`eventId` đã có), service trả `DUPLICATE`, bỏ qua business logic, rồi listener `ack`.
-3. Listener retry trong cùng lần consume theo `app.kafka.retry.max-attempts` khi có exception.
-4. Mỗi lần fail sẽ publish envelope sang topic DLT (`data-hub.user-orders.DLT`).
-5. Khi hết retry:
+1. Step 1: listener validate data trước khi gọi service.
+2. Step 2: service check duplicate bằng `saveIfAbsent(eventId, status=PROCESSING)` theo kiểu atomic (`insert-if-absent`).
+3. Nếu duplicate (`eventId` đã có) thì trả `DUPLICATE`, skip business logic, và listener `ack`.
+4. Nếu không duplicate thì mới chạy business logic và cập nhật trạng thái xử lý.
+5. Listener retry trong cùng lần consume theo `app.kafka.retry.max-attempts` khi có exception.
+6. Mỗi lần fail sẽ publish envelope sang topic DLT (`data-hub.user-orders.DLT`).
+7. Khi hết retry:
 - gọi `markFailedAfterRetries` để set `FAILED` trong DB,
 - publish thêm sang parking-lot (`data-hub.user-orders.parking-lot`),
 - rồi `ack` offset để tránh stuck consumer.
