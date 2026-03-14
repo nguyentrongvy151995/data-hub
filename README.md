@@ -277,8 +277,8 @@ curl http://localhost:8084/ping
 - Kafka UI: `http://localhost:18080`
 - MongoDB URI (từ local tool/Compass): `mongodb://datahub:datahub@localhost:27018/admin?authSource=admin&directConnection=true`
 - MongoDB URI (service chạy trong Docker): `mongodb://datahub:datahub@mongo:27017/data_hub?authSource=admin`
-- Kafka bootstrap server (local tool/service local): `localhost:9092`
-- Kafka bootstrap server (service trong Docker network): `kafka:29092`
+<!-- - Kafka bootstrap server (local tool/service local): `localhost:9092`
+- Kafka bootstrap server (service trong Docker network): `kafka:29092` -->
 
 ### 7.3 Run test
 
