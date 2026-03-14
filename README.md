@@ -97,14 +97,14 @@ sequenceDiagram
 
     alt parse + validate OK
         L->>S: ingest(eventDto)
-        S->>DB: saveIfAbsent(eventId)\n(check duplicate first, atomic)
+        S->>DB: check duplicate eventId\n(saveIfAbsent, atomic)
 
-        alt DUPLICATE
+        alt duplicate eventId
             DB-->>S: DUPLICATE
             S-->>L: DUPLICATE
-            Note over L,S: Skip business processing
+            Note over L,S: duplicate => skip business
             L->>L: ACK offset (done)
-        else STORED
+        else new eventId
             DB-->>S: STORED
             S->>S: process business logic
 
