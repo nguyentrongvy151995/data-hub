@@ -156,7 +156,7 @@ Dựa vào những ý trên để phân tích các câu query trên:
 - Query 4
     * Tăng theo số transaction match * số log/transaction (join fan-out), nên có thể tăng rất nhanh.
 
-### Thiết kế Index để tối ưu hệ thống
+## Thiết kế Index để tối ưu hệ thống
 
 1. db.transactions.createIndex({ user_id: 1, created_at: -1 })
     * Lý do: cover cả filter theo user_id và sort created_at desc.
@@ -181,7 +181,7 @@ Dựa vào những ý trên để phân tích các câu query trên:
     * Lý do: $lookup join theo transaction_id; có index để tránh scan toàn bộ transaction_logs cho mỗi transaction, created_at giúp lấy log mới nhất hiệu quả nếu có sort/limit trong lookup pipeline.
     * Tối ưu: Query 4 (join transaction kèm logs), đặc biệt khi thêm $lookup.pipeline có sort/limit log.
 
-#### Tối ưu Query
+## Tối ưu Query
 
 1. Query 1 - Tổng số tiền giao dịch của user (tối ưu: lọc status + time range trước khi group)
     ```
@@ -301,7 +301,7 @@ db.transactions
     db.transaction_logs.createIndex({ transaction_id: 1, created_at: -1 })
     ```
 
-##### Thiết kế Schema tối ưu hơn
+## Thiết kế Schema tối ưu hơn
 I.  đề xuất:
 
 1. users - transactions: Referencing
@@ -343,7 +343,7 @@ II. Trade-off:
     - Ưu: đọc rất nhanh cho API/report nóng.
     - Nhược: write path phức tạp hơn, phải giữ đồng bộ dữ liệu (eventual consistency/reconciliation job).
 
-###### Thiết kế giải pháp khi dữ liệu rất lớn
+## Thiết kế giải pháp khi dữ liệu rất lớn
 
 1) Index strategy
     - Chỉ giữ index phục vụ query nóng, tránh “index bloat”.
