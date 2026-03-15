@@ -488,3 +488,13 @@ docker exec -it data-hub-mongo mongosh \
 Ghi chú:
 - `localhost:27018` là cổng Mongo publish ra máy local từ Docker Compose.
 - Nếu bạn chạy Mongo local mặc định `27017`, thay URI tương ứng để tránh chạy nhầm DB.
+
+### 5.3 Chạy script với Mongo local mặc định
+
+Dùng cách này khi bạn chạy MongoDB local trên `localhost:27017` và **không bật auth**:
+
+```bash
+mongosh --file scripts/mongo-deliverables.js
+```
+
+Nếu local Mongo có bật auth hoặc chạy port khác, dùng lệnh có URI đầy đủ ở mục 5.1/5.2.
