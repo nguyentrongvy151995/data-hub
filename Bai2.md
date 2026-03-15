@@ -300,3 +300,120 @@ db.transactions
     db.transactions.createIndex({ user_id: 1, status: 1, created_at: -1 })
     db.transaction_logs.createIndex({ transaction_id: 1, created_at: -1 })
     ```
+
+##### Thiết kế Schema tối ưu hơn
+I.  đề xuất:
+
+1. users - transactions: Referencing
+- Giữ transactions.user_id tham chiếu users._id.
+- Không embed transactions vào user.
+- Lý do: số transaction rất lớn (10M+, tăng 100k/ngày), embed sẽ làm document user phình to, khó scale write/read.
+
+2. transactions - transaction_logs: Referencing (không embed full logs)
+- Giữ transaction_logs riêng, join bằng transaction_id.
+- Không embed toàn bộ logs[] vào transaction vì:
+    + logs có thể tăng nhiều theo thời gian.
+    + dễ vượt kích thước document.
+    + query list transaction thường không cần full payload logs.
+
+3. Denormalization nhẹ trong transactions (nên có)
+- Thêm các field summary để giảm $lookup:
+    + log_count
+    + last_event_type
+    + last_event_at
+    + (tuỳ nghiệp vụ) last_error_code
+- Lợi ích: API list/detail nhanh hơn, ít cần kéo full logs.
+
+4. Denormalization cho báo cáo (nên có collection summary)
+- Tạo collection daily_transaction_summary:
+    + { day, total_amount, success_total, failed_total, tx_count }
+- Có thể thêm user_daily_summary:
+    + { user_id, day, total_amount, tx_count }
+- Lợi ích: thay vì group trên raw 10M records mỗi lần, report đọc từ bảng tổng hợp nhỏ.
+
+II. Trade-off:
+
+1. Referencing
+    - Ưu: scale tốt, document gọn, linh hoạt audit/history.
+    - Nhược: cần $lookup hoặc nhiều query khi cần dữ liệu liên quan.
+2. Embedding
+    - Ưu: đọc 1 lần ra đủ dữ liệu.
+    - Nhược: document phình to, update tốn, không hợp với logs tăng liên tục.
+3. Denormalization
+    - Ưu: đọc rất nhanh cho API/report nóng.
+    - Nhược: write path phức tạp hơn, phải giữ đồng bộ dữ liệu (eventual consistency/reconciliation job).
+
+###### Thiết kế giải pháp khi dữ liệu rất lớn
+
+1) Index strategy
+    - Chỉ giữ index phục vụ query nóng, tránh “index bloat”.
+        + transactions:
+            ({ user_id: 1, created_at: -1 })
+            ({ user_id: 1, status: 1, created_at: -1 })
+            ({ created_at: -1 }) (nếu có query/report theo time-range toàn hệ thống)
+        
+        + transaction_logs:
+            ({ transaction_id: 1, created_at: -1 })
+    - Tách index cho hot vs cold data.
+        + Hot collection (N tháng gần nhất): đủ index phục vụ API realtime.
+        + Archive collection: giảm index, ưu tiên index cho truy xuất lịch sử.
+    - Định kỳ review index usage.
+        + Dùng explain, profiler, slow query log để drop index không dùng.
+        + Tránh write amplification khi ingest lớn.
+2) Sharding strategy
+    - Shard transactions theo key có phân phối đều + hỗ trợ query:
+        + Gợi ý thực tế: hashed(user_id) cho cân bằng ghi tốt.
+        + Nếu query thường theo user + time, cân nhắc compound shard key có thành phần time nhưng phải test hotspot.
+    - Shard transaction_logs theo hashed(transaction_id).
+        + Đồng nhất với pattern join theo transaction_id.
+        + Giảm nghẽn 1 shard khi log tăng mạnh.
+    - Tách workload:
+        + Cluster OLTP (API realtime).
+        + Cluster/reporting (analytics, aggregate nặng).
+    - Chú ý hotspot:
+        + Nếu shard key skew (user lớn, tenant lớn) sẽ nghẽn 1 shard.
+        + Cần monitor balancer + chunk distribution.
+3) Partition theo time (time-based split)
+    - Chia logical theo tháng/ngày:
+        + Ví dụ: transactions_2026_01, transactions_2026_02 (hoặc bucket field month_bucket).
+        + Query ngày/tháng sẽ đọc subset nhỏ hơn.
+    - Với Mongo, có thể:
+        + Dùng collection theo thời gian (manual partition),
+        + Hoặc dùng shard key có thành phần thời gian (cẩn trọng hotspot ghi theo thời gian hiện tại).
+    - Report theo ngày/tháng:
+        + Ưu tiên đọc từ summary table thay vì group raw data.
+4) Archive dữ liệu cũ
+    - Chính sách dữ liệu:
+        + Hot: 6-12 tháng gần nhất trong transactions.
+        + Cold: chuyển sang transactions_archive.
+    - Cách archive:
+        + Job định kỳ (daily/weekly) move theo created_at.
+        + Có checksum/count đối soát trước-sau khi move.
+        + Archive có thể để ở cluster rẻ hơn.
+    - Query chiến lược:
+        + API realtime chỉ đọc hot.
+        + Query lịch sử dài hạn đọc archive hoặc union (hot + archive) khi cần.
+    - Với transaction_logs:
+        + TTL hoặc archive theo retention policy (nếu nghiệp vụ cho phép).
+
+5) Kết luận kiến trúc scale lớn
+    - OLTP collection nhỏ, index gọn, query nóng nhanh.
+    - Sharding để scale ngang ghi/đọc.
+    - Time partition + archive để tránh phình vô hạn.
+    - Report chuyển sang pre-aggregation (daily_summary, user_daily_summary) thay vì full scan 500M raw docs.
+## 5. Deliverables
+
+### 5.1 MongoDB script
+
+- File: `scripts/mongo-deliverables.js`
+- Bao gồm:
+  - Script tạo index cho `transactions` và `transaction_logs`.
+  - 4 query đã tối ưu (Query 1..4) theo yêu cầu bài test.
+
+Chạy script:
+
+```bash
+mongosh "mongodb://datahub:datahub@localhost:27018/admin?authSource=admin&directConnection=true" --file scripts/mongo-deliverables.js
+```
+
+Nếu dùng Mongo local mặc định `27017` thì thay port trong URI tương ứng.
