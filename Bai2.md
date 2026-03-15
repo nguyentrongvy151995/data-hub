@@ -450,6 +450,7 @@ II. Trade-off:
 
 - File: `scripts/mongo-deliverables.js`
 - Bao gồm:
+  - Script tạo model/schema validator cho `users`, `transactions`, `transaction_logs`, và summary collections.
   - Script tạo index cho `transactions` và `transaction_logs`.
   - 4 query đã tối ưu (Query 1..4) theo yêu cầu bài test.
 
@@ -460,3 +461,30 @@ mongosh "mongodb://datahub:datahub@localhost:27018/admin?authSource=admin&direct
 ```
 
 Nếu dùng Mongo local mặc định `27017` thì thay port trong URI tương ứng.
+
+### 5.2 Cài mongosh và chạy script local
+
+Cài `mongosh` (macOS/Homebrew):
+
+```bash
+brew install mongosh
+mongosh --version
+```
+
+Chạy script bằng `mongosh` local:
+
+```bash
+mongosh "mongodb://datahub:datahub@localhost:27018/admin?authSource=admin&directConnection=true" --file scripts/mongo-deliverables.js
+```
+
+Nếu chưa muốn cài `mongosh` local, chạy trực tiếp bằng `mongosh` trong container Mongo:
+
+```bash
+docker exec -it data-hub-mongo mongosh \
+  "mongodb://datahub:datahub@127.0.0.1:27017/admin?authSource=admin&directConnection=true" \
+  --file scripts/mongo-deliverables.js
+```
+
+Ghi chú:
+- `localhost:27018` là cổng Mongo publish ra máy local từ Docker Compose.
+- Nếu bạn chạy Mongo local mặc định `27017`, thay URI tương ứng để tránh chạy nhầm DB.
