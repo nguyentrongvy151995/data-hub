@@ -180,3 +180,123 @@ Dựa vào những ý trên để phân tích các câu query trên:
 5. db.transaction_logs.createIndex({ transaction_id: 1, created_at: -1 })
     * Lý do: $lookup join theo transaction_id; có index để tránh scan toàn bộ transaction_logs cho mỗi transaction, created_at giúp lấy log mới nhất hiệu quả nếu có sort/limit trong lookup pipeline.
     * Tối ưu: Query 4 (join transaction kèm logs), đặc biệt khi thêm $lookup.pipeline có sort/limit log.
+
+#### Tối ưu Query
+
+1. Query 1 - Tổng số tiền giao dịch của user (tối ưu: lọc status + time range trước khi group)
+    ```
+    db.transactions.aggregate([
+    {
+        $match: {
+        user_id: "10001",
+        status: "success",
+        created_at: {
+            $gte: ISODate("2026-01-01T00:00:00Z"),
+            $lt: ISODate("2026-02-01T00:00:00Z")
+        }
+        }
+    },
+    {
+        $group: {
+        _id: null,
+        total: { $sum: "$amount" }
+        }
+    }
+    ])
+    ```
+
+2. Query 2 - 20 giao dịch gần nhất của user (tối ưu: projection giảm payload)
+db.transactions
+    ```
+    db.transactions
+    .find(
+        { user_id: "10001" },
+        { _id: 1, user_id: 1, amount: 1, currency: 1, status: 1, created_at: 1 }
+    )
+    .sort({ created_at: -1 })
+    .limit(20)
+    ```
+
+3. Query 3 - Báo cáo tổng tiền theo ngày (tối ưu: match theo thời gian trước, group theo day)
+    ```
+    db.transactions.aggregate([
+    {
+        $match: {
+        status: "success",
+        created_at: {
+            $gte: ISODate("2026-01-01T00:00:00Z"),
+            $lt: ISODate("2026-02-01T00:00:00Z")
+        }
+        }
+    },
+    {
+        $group: {
+        _id: { $dateTrunc: { date: "$created_at", unit: "day" } },
+        total: { $sum: "$amount" }
+        }
+    },
+    {
+        $sort: { _id: 1 }
+    }
+    ], { allowDiskUse: true })
+    ```
+4. Query 4 - Lấy transaction kèm logs (tối ưu: sort+limit transaction trước lookup, lookup pipeline + project)
+    ```
+    db.transactions.aggregate([
+    {
+        $match: { user_id: "10001" }
+    },
+    {
+        $sort: { created_at: -1 }
+    },
+    {
+        $limit: 20
+    },
+    {
+        $lookup: {
+        from: "transaction_logs",
+        let: { txId: "$_id" },
+        pipeline: [
+            {
+            $match: {
+                $expr: { $eq: ["$transaction_id", "$$txId"] }
+            }
+            },
+            {
+            $sort: { created_at: -1 }
+            },
+            {
+            $limit: 50
+            },
+            {
+            $project: {
+                _id: 1,
+                transaction_id: 1,
+                event_type: 1,
+                created_at: 1
+            }
+            }
+        ],
+        as: "logs"
+        }
+    },
+    {
+        $project: {
+        _id: 1,
+        user_id: 1,
+        amount: 1,
+        currency: 1,
+        status: 1,
+        created_at: 1,
+        logs: 1
+        }
+    }
+    ], { allowDiskUse: true })
+    ```
+
+- Index đi kèm để các query trên chạy tốt:
+    ```
+    db.transactions.createIndex({ user_id: 1, created_at: -1 })
+    db.transactions.createIndex({ user_id: 1, status: 1, created_at: -1 })
+    db.transaction_logs.createIndex({ transaction_id: 1, created_at: -1 })
+    ```
