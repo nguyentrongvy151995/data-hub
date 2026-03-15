@@ -316,13 +316,14 @@ I.  đề xuất:
     + dễ vượt kích thước document.
     + query list transaction thường không cần full payload logs.
 
-3. Denormalization nhẹ trong transactions (nên có)
+3. Denormalization trong transactions
 - Thêm các field summary để giảm $lookup:
-    + log_count
-    + last_event_type
-    + last_event_at
-    + (tuỳ nghiệp vụ) last_error_code
-- Lợi ích: API list/detail nhanh hơn, ít cần kéo full logs.
+    + log_count (tổng số log của transaction)
+    + last_event_type (event log mới nhất)
+    + last_event_at ( thời điểm log mới nhất)
+- Lợi ích: 
+    + API list/detail transaction thường chỉ cần “trạng thái hiện tại”, không cần full mảng logs.
+    + Không cần $lookup mỗi lần => giảm join, giảm RAM/CPU/network.
 
 4. Denormalization cho báo cáo (nên có collection summary)
 - Tạo collection daily_transaction_summary:
@@ -346,34 +347,75 @@ II. Trade-off:
 ## Thiết kế giải pháp khi dữ liệu rất lớn
 
 1) Index strategy
-    - Chỉ giữ index phục vụ query nóng, tránh “index bloat”.
+    - Chỉ tạo index cho những query chạy thường xuyên, quan trọng với API của hệ thống. Vì mỗi index trong MongoDB là một cấu trúc dữ liệu riêng, thường là B-tree.
+    - Khi tạo thêm index, Mongo phải:
+        + Tốn thêm disk
+        + Tốn thêm RAM để cache index
+        + Mỗi lần insert/update/delete phải update cả document lần các index liên quan, dẫn đến làm tăng write latency.
+        => nhiều index: đọc nhanh hơn nhưng ghi sẽ chậm hơn, storage tăng, bộ nhớ tốn hơn.
+
         + transactions:
             ({ user_id: 1, created_at: -1 })
             ({ user_id: 1, status: 1, created_at: -1 })
             ({ created_at: -1 }) (nếu có query/report theo time-range toàn hệ thống)
-        
+
         + transaction_logs:
             ({ transaction_id: 1, created_at: -1 })
+
     - Tách index cho hot vs cold data.
-        + Hot collection (N tháng gần nhất): đủ index phục vụ API realtime.
-        + Archive collection: giảm index, ưu tiên index cho truy xuất lịch sử.
+        + Hot data là dữ liệu gần đây (ví dụ 3 tháng, 6 tháng) thường được api truy cập liên tục, dashboard dùng liên tục, support tra cứu thường xuyên.
+        + Cold data dữ liệu cũ hơn (ví dụ 12 tháng) thường ít được query, chủ yếu tra cứu lịch sử, report dài hạn.
+        => nếu nhồi nhét hết vào 1 collection với full index thì collection rất ro, index nhiều, RAM cache kém hiệu quả, write chậm.
+        + Chiên lược tách: cách phổ biến là chia làm 2 collections
+            - db.transactions_hot (ví dụ data 6 tháng gần nhất):
+                + Index:
+                    ```
+                        db.transactions_hot.createIndex({ user_id: 1, created_at: -1 })
+                        db.transactions_hot.createIndex({ user_id: 1, status: 1, created_at: -1 })
+                        db.transactions_hot.createIndex({ created_at: -1 })
+                    ```
+            - db.transactions_archive (ví dụ data 6 tháng trước trở đi):
+                + Index:
+                    ```
+                    db.transactions_archive.createIndex({ user_id: 1, created_at: -1 })
+                    db.transactions_archive.createIndex({ created_at: -1 })
+                    ```
+        + Cách làm:
+            - Move định kỳ bằng job, mỗi đêm cho job chạy.
+            - Lấy document trong transactions_hot có created_at < (now - 6 tháng) copy sang transactions_archive.
+            - Có 1 job riếng để xoá data có thời gian created_at > (now - 6 tháng) khỏi transactions_hot ().
+
     - Định kỳ review index usage.
-        + Dùng explain, profiler, slow query log để drop index không dùng.
-        + Tránh write amplification khi ingest lớn.
-2) Sharding strategy
-    - Shard transactions theo key có phân phối đều + hỗ trợ query:
-        + Gợi ý thực tế: hashed(user_id) cho cân bằng ghi tốt.
-        + Nếu query thường theo user + time, cân nhắc compound shard key có thành phần time nhưng phải test hotspot.
-    - Shard transaction_logs theo hashed(transaction_id).
-        + Đồng nhất với pattern join theo transaction_id.
-        + Giảm nghẽn 1 shard khi log tăng mạnh.
-    - Tách workload:
-        + Cluster OLTP (API realtime).
-        + Cluster/reporting (analytics, aggregate nặng).
-    - Chú ý hotspot:
-        + Nếu shard key skew (user lớn, tenant lớn) sẽ nghẽn 1 shard.
-        + Cần monitor balancer + chunk distribution.
+        - Lúc đầu bạn tạo index để phục vụ một API. Sau vài tháng:
+            + API đó ít dùng
+            + business logic đổi
+            + query shape thay đổi
+            + index cũ không còn ai dùng
+
+            Nếu không review, hệ thống sẽ bị tích tụ “rác index”.
+            => Dùng explain, profiler, slow query log để drop index không dùng.
+
+2) Sharding strategy:
+    - Nguyên nhân: Khi một collection quá lớn và traffic quá cao, 1 máy/1 replica không gánh nổi.
+    - Giải pháp: MongoDB cho phép sharding: chia dữ liệu của một collection ra nhiều shard.
+    - Flow đơn giản cho mô hình này:
+    ```
+    app (query) → mongos → shard phù hợp (có nhiều shard) → gom kết quả → trả về app
+    ```
+    - MongoDB xử lý như sau:
+        ```
+        - App gửi query vào mongos
+        - Mongos dựa vào shard key + metadata
+        - Nếu query có shard key phù hợp → gửi tới đúng shard cần thiết
+        - Nếu không xác định được → gửi tới nhiều/tất cả shard
+        - Các shard xử lý dữ liệu local của mình
+        - Mongos gom, merge, sort, limit nếu cần
+        - Trả về cho app như một kết quả thống nhất
+        ```
+    => Cách này khá phức tạp, dữ liệu cực lớn mới dùng đến cách này.
+
 3) Partition theo time (time-based split)
+    - Mục đích là chia dữ liệu theo thời gian để giảm khối lượng dữ liệu phải đọc và làm cho query/report dễ scale hơn. 
     - Chia logical theo tháng/ngày:
         + Ví dụ: transactions_2026_01, transactions_2026_02 (hoặc bucket field month_bucket).
         + Query ngày/tháng sẽ đọc subset nhỏ hơn.
@@ -382,6 +424,7 @@ II. Trade-off:
         + Hoặc dùng shard key có thành phần thời gian (cẩn trọng hotspot ghi theo thời gian hiện tại).
     - Report theo ngày/tháng:
         + Ưu tiên đọc từ summary table thay vì group raw data.
+
 4) Archive dữ liệu cũ
     - Chính sách dữ liệu:
         + Hot: 6-12 tháng gần nhất trong transactions.
