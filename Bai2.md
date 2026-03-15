@@ -121,3 +121,37 @@ Giải thích:
         - Dùng projection (lấy những field cần dùng, giảm data load).
         - Sharding chia một collection lớn thành nhiều phần và phân tán lên nhiều node Mongo (Cách này vận hành phức tạp, trừ khi dữ liệu quá lớn mới áp dụng).
 ```
+```
+Dựa vào những ý trên để phân tích các câu query trên:
+1. Tổng số tiền giao dịch của user.
+    - Nếu thiếu đánh index cho user_id thì phải quét gần như toàn bộ collection
+    - Nếu có index cho user_id thì với cầu query trên, user có nhiều transaction thì vẫn phải đọc rất nhiều bản ghi để cộng tổng.
+2. 20 giao dịch gần nhất của user
+    - Nếu không đánh index theo đúng thứ tự (user_id, created_at, desc) thì Mongo sẽ filter xong rồi mới sort..
+3. Báo cáo tổng tiền theo ngày
+    - Query khôg có $match, nên mỗi lần chạy là quét toàn bộ 10M+ transaction.
+    - $group toàn bộ collection nên ngốn CPU cao.
+4. Lấy transaction kèm logs
+    - Nếu không đánh index cho transaction_logs.transaction_id, join sẽ rất nặng.
+    - Cũng cần đánh index cho user_id.
+    - Không có limit transaction trong câu query nên khi join sẽ kéo lượng logs rất lớn.
+```
+- Nếu đánh index không đúng pattern truy vấn, Mongo vẫn phải scan nhiều dữ liệu thô.
+
+2. Query nào có nguy có collection scan.
+- Query 1 nếu thiếu đánh index transactions.user_id và Query 2 nếu đánh index không đúng thứ tự thì sẽ quét nhiều hoặc toàn bộ collection.
+- Query 3 không có $match nên sẽ scan toàn bộ transactions.
+- Query 4
+    + Transactions sẽ scan toàn bộ collection nếu thiếu đánh index user_id
+    + Bên transaction_logs có thể bị scan nếu thiếu đánh index cho transaction_id
+
+3. Query nào sẽ tăng độ phức tạp theo data size.
+- Query 3
+    * Quét + group toàn bộ transactions nên gần như tăng tuyến tính theo tổng số document.
+- Query 1
+    * Tăng theo số transaction của user đó (user càng “nặng” càng chậm).
+- Query 4
+    * Tăng theo số transaction match * số log/transaction (join fan-out), nên có thể tăng rất nhanh.
+- Query 2
+    * Nếu có index chuẩn thì tăng ít (gần như ổn định cho limit 20).
+    * Nếu thiếu index sort/filter thì cũng tăng theo data size lớn.
