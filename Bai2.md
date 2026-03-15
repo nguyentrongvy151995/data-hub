@@ -146,12 +146,37 @@ Dựa vào những ý trên để phân tích các câu query trên:
     + Bên transaction_logs có thể bị scan nếu thiếu đánh index cho transaction_id
 
 3. Query nào sẽ tăng độ phức tạp theo data size.
-- Query 3
-    * Quét + group toàn bộ transactions nên gần như tăng tuyến tính theo tổng số document.
 - Query 1
     * Tăng theo số transaction của user đó (user càng “nặng” càng chậm).
-- Query 4
-    * Tăng theo số transaction match * số log/transaction (join fan-out), nên có thể tăng rất nhanh.
 - Query 2
     * Nếu có index chuẩn thì tăng ít (gần như ổn định cho limit 20).
     * Nếu thiếu index sort/filter thì cũng tăng theo data size lớn.
+- Query 3
+    * Quét + group toàn bộ transactions nên gần như tăng tuyến tính theo tổng số document.
+- Query 4
+    * Tăng theo số transaction match * số log/transaction (join fan-out), nên có thể tăng rất nhanh.
+
+### Thiết kế Index để tối ưu hệ thống
+
+1. db.transactions.createIndex({ user_id: 1, created_at: -1 })
+    * Lý do: cover cả filter theo user_id và sort created_at desc.
+    * Tối ưu: 
+        - Query 2 trực tiếp. 
+        - Query 1 cũng hưởng lợi ở bước lọc theo user_id tránh COLLSPAN toàn bảng.
+        - Query 4 ($match user_id + $lookup)
+
+2. db.transactions.createIndex({ created_at: -1 })
+    * Lý do: nhiều báo cáo lọc thống kê theo thời gian.
+    * Tối ưu: Query 3 khi refactor có $match thời gian.
+
+3. db.transactions.createIndex({ status: 1, created_at: -1 })
+    * Lý do:  nhiều báo cáo lọc theo status và thống kê theo thời gian.
+    * Tối ưu: Query 3 khi refactor có $match thời gian và status.
+
+4. db.transactions.createIndex({ user_id: 1, status: 1, created_at: -1 })
+    * Lý do: nhiều báo cáo lọc theo user_id status và thống kê theo thời gian.
+    * Tối ưu: Query 3 khi refactor có $match user_id, status và thời gian.
+
+5. db.transaction_logs.createIndex({ transaction_id: 1, created_at: -1 })
+    * Lý do: $lookup join theo transaction_id; có index để tránh scan toàn bộ transaction_logs cho mỗi transaction, created_at giúp lấy log mới nhất hiệu quả nếu có sort/limit trong lookup pipeline.
+    * Tối ưu: Query 4 (join transaction kèm logs), đặc biệt khi thêm $lookup.pipeline có sort/limit log.
