@@ -196,17 +196,17 @@ Mục tiêu: lưu event thô + trạng thái xử lý để support ingest idemp
 #### Index hiện tại
 
 - `uk_event_event_id` (unique trên `eventId`)
-- `idx_event_type`
-- `idx_event_source_system`
-- `idx_event_status`
-- `idx_event_updated_at`
+- `idx_event_type_source_status_created_at` (compound: `eventType`, `sourceSystem`, `status`, `createdAt desc`)
+- `idx_event_source_status_created_at` (compound: `sourceSystem`, `status`, `createdAt desc`)
+- `idx_event_status_created_at` (compound: `status`, `createdAt desc`)
+- `idx_event_created_at`
 
 #### Vì sao thiết kế như vậy
 
 1. **Unique `eventId`** để chống lưu trùng khi duplicate từ Kafka/REST.
 2. **`status` riêng** để theo dõi lifecycle xử lý và hỗ trợ retry/failure analysis.
 3. **Tách `createdAt` và `updatedAt`** để phân biệt thời gian nghiệp vụ và thời gian xử lý hệ thống.
-4. **Index `updatedAt`** phục vụ filter theo cửa sổ thời gian cho report; **index `sourceSystem`** phục vụ tra cứu và mở rộng truy vấn theo nguồn.
+4. **Compound index (`eventType`, `sourceSystem`, `status`, `createdAt`)** phục vụ query search gộp/report; **compound index (`sourceSystem`, `status`, `createdAt`)** phục vụ query riêng theo source+status có sort thời gian; **compound index (`status`, `createdAt`)** phục vụ query riêng theo status có sort thời gian; **index `createdAt`** phục vụ filter/sort theo business time toàn hệ thống.
 5. **Lưu `payload` dạng string** để giữ nguyên raw event, tránh coupling chặt vào schema payload động từ upstream.
 
 ## 4. Design Decisions
@@ -255,7 +255,7 @@ Nếu lưu lượng message tăng gấp 10 lần, hệ thống có thể scale t
 
 4. **Scale MongoDB**
 - Dùng replica set để tăng độ sẵn sàng; khi tải ghi tăng mạnh, cân nhắc sharding.
-- Giữ index chính xác theo pattern truy vấn (`eventId`, `status`, `updatedAt`, `sourceSystem`) để tránh full scan.
+- Giữ index chính xác theo pattern truy vấn (`eventId`, `status`, `createdAt`, `sourceSystem`) để tránh full scan.
 
 5. **Observability + capacity planning**
 - Theo dõi các chỉ số: Kafka lag, tỉ lệ DLT, latency xử lý event, lỗi Mongo write.
@@ -330,7 +330,7 @@ Chạy integration test Kafka listener (dùng Embedded Kafka trong test):
 ./mvnw -Dtest=RawEventKafkaListenerIntegrationTest test
 ```
 
-Chạy integration test Mongo repository:
+<!-- Chạy integration test Mongo repository:
 
 ```bash
 # Test này cần MongoDB ở localhost:27017
@@ -341,7 +341,7 @@ docker run --rm -d --name data-hub-mongo-test -p 27017:27017 mongo:7
 
 # Dọn container test
 docker stop data-hub-mongo-test
-```
+``` -->
 
 Chạy 1 testcase cụ thể:
 
@@ -349,7 +349,7 @@ Chạy 1 testcase cụ thể:
 ./mvnw -Dtest=EventApplicationServiceTest#createShouldPersistAndMarkSuccessWhenEventIsNew test
 ```
 
-Xem report test khi fail:
+<!-- Xem report test khi fail:
 
 - `target/surefire-reports/*.txt`
-- `target/surefire-reports/*.xml`
+- `target/surefire-reports/*.xml` -->

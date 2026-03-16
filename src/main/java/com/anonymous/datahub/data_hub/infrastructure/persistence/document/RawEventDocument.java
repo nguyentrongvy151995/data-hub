@@ -1,12 +1,28 @@
 package com.anonymous.datahub.data_hub.infrastructure.persistence.document;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
 
 @Document(collection = "raw_event")
+@CompoundIndexes({
+        @CompoundIndex(
+                name = "idx_event_type_source_status_created_at",
+                def = "{'eventType': 1, 'sourceSystem': 1, 'status': 1, 'createdAt': -1}"
+        ),
+        @CompoundIndex(
+                name = "idx_event_source_status_created_at",
+                def = "{'sourceSystem': 1, 'status': 1, 'createdAt': -1}"
+        ),
+        @CompoundIndex(
+                name = "idx_event_status_created_at",
+                def = "{'status': 1, 'createdAt': -1}"
+        )
+})
 public class RawEventDocument {
 
     @Id
@@ -15,20 +31,17 @@ public class RawEventDocument {
     @Indexed(name = "uk_event_event_id", unique = true)
     private String eventId;
 
-    @Indexed(name = "idx_event_type")
     private String eventType;
 
-    @Indexed(name = "idx_event_source_system")
     private String sourceSystem;
 
-    @Indexed(name = "idx_event_status")
     private String status;
 
     private String payload;
 
+    @Indexed(name = "idx_event_created_at")
     private Instant createdAt;
 
-    @Indexed(name = "idx_event_updated_at")
     private Instant updatedAt;
 
     public String getId() {
