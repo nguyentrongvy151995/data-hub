@@ -79,8 +79,20 @@ Cách đọc:
 - `infrastructure/kafka`: listener, consumer config, topic config, producer scheduler.
 
 ## 2. Luồng xử lý message
+Muc tieu phan nay: giup dev nhin nhanh end-to-end flow, bao gom ca producer tao fake data cho dev/test va consumer xu ly message.
 
-### 2.1 Luồng Kafka consume (chính)
+
+### 2.1 Luong Kafka produce (fake data scheduler)
+
+Component tao du lieu fake: `RawEventKafkaProducerScheduler`.
+
+Producer chay dinh ky theo scheduler, moi chu ky se tao mot batch message JSON va gui vao topic `app.kafka.topic.raw-events`.
+Moi message co `eventId` tang dan, kem `eventType`, `createdAt`, `source` va `payload` (userId, name).
+Khi gui, producer set Kafka key = `eventId` bang `kafkaTemplate.send(topic, eventId, payload)` de giu phan bo message on dinh theo key.
+Toc do ban trung binh = batch-size / (interval-ms / 1000). Mac dinh hien tai: batch-size=3 va interval-ms=3000, tuc la trung binh ~1 message/giay (burst 3 message moi 3 giay).
+
+
+### 2.2 Luong Kafka consume (chinh)
 
 ```mermaid
 sequenceDiagram
@@ -207,7 +219,7 @@ Mục tiêu: lưu event thô + trạng thái xử lý để support ingest idemp
 
 #### 4. Cách đảm bảo không mất dữ liệu
 
-1. Dùng semantics at-least-once: chỉ commit offset sau khi có kết quả cuối cùng cho message.
+1. Chỉ commit offset sau khi có kết quả cuối cùng cho message.
 2. Event hợp lệ được lưu vào Mongo với status lifecycle `PROCESSING -> SUCCESS/FAILED_RETRYABLE/FAILED`.
 3. Nếu service crash trước khi `ack`, Kafka sẽ deliver lại; duplicate được chặn bởi unique `eventId` + claim/reclaim atomic.
 4. Message xử lý thất bại cuối cùng vẫn được giữ ở DLT (kèm payload + metadata lỗi) để điều tra/replay, tránh thất lạc dữ liệu.
@@ -222,7 +234,7 @@ Nếu lưu lượng message tăng gấp 10 lần, hệ thống có thể scale t
 
 2. **Scale ngang consumer instance**
 - Chạy nhiều instance Data Hub cùng `group-id` để Kafka rebalance partition cho các instance.
-- Dùng autoscaling theo `consumer lag`, CPU, và memory.
+- Dùng autoscaling theo `consumer lag`, CPU, và memory. Thay vì scale thủ công, bạn cấu hình hệ thống tự tăng/giảm số instance dựa trên tín hiệu vận hành.
 
 3. **Tune consumer throughput**
 - Điều chỉnh `spring.kafka.listener.concurrency`, `max.poll.records`, `pollTimeout`, `retry.backoff-ms` theo tải thực tế.
