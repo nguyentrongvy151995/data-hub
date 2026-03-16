@@ -105,11 +105,6 @@ Payload mau producer tao ra:
 }
 ```
 
-Thong luong mac dinh:
-- Cong thuc: `messages_per_second = batch_size / (interval_ms / 1000)`
-- Gia tri hien tai: `batch_size=3`, `interval_ms=3000` => trung binh ~`1 msg/s` (burst `3` message moi `3s`).
-
-
 ### 2.2 Luong Kafka consume (chinh)
 
 ```mermaid
