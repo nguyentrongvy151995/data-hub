@@ -86,10 +86,28 @@ Muc tieu phan nay: giup dev nhin nhanh end-to-end flow, bao gom ca producer tao 
 
 Component tao du lieu fake: `RawEventKafkaProducerScheduler`.
 
-Producer chay dinh ky theo scheduler, moi chu ky se tao mot batch message JSON va gui vao topic `app.kafka.topic.raw-events`.
-Moi message co `eventId` tang dan, kem `eventType`, `createdAt`, `source` va `payload` (userId, name).
-Khi gui, producer set Kafka key = `eventId` bang `kafkaTemplate.send(topic, eventId, payload)` de giu phan bo message on dinh theo key.
-Toc do ban trung binh = batch-size / (interval-ms / 1000). Mac dinh hien tai: batch-size=3 va interval-ms=3000, tuc la trung binh ~1 message/giay (burst 3 message moi 3 giay).
+Cach producer ban fake data:
+- Chay dinh ky theo scheduler (initial delay + interval).
+- Moi chu ky gui 1 batch message vao topic `app.kafka.topic.raw-events`.
+- Moi message deu set Kafka key = `eventId` de phan bo partition on dinh theo key.
+
+Payload mau producer tao ra:
+```json
+{
+  "eventId": "",
+  "eventType": "BET",
+  "createdAt": "<Instant.now()>",
+  "source": "systemA",
+  "payload": {
+    "userId": "",
+    "name": "Vy Nguyen"
+  }
+}
+```
+
+Thong luong mac dinh:
+- Cong thuc: `messages_per_second = batch_size / (interval_ms / 1000)`
+- Gia tri hien tai: `batch_size=3`, `interval_ms=3000` => trung binh ~`1 msg/s` (burst `3` message moi `3s`).
 
 
 ### 2.2 Luong Kafka consume (chinh)
