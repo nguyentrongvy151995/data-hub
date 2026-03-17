@@ -9,7 +9,7 @@
  * mongosh "mongodb://datahub:datahub@localhost:27018/admin?authSource=admin&directConnection=true" --file scripts/mongo-deliverables.js
  */
 
-const DATABASE_NAME = "data_hub1";
+const DATABASE_NAME = "data_hub_test";
 const USER_ID = "10001";
 const FROM = ISODate("2026-01-01T00:00:00Z");
 const TO = ISODate("2026-02-01T00:00:00Z");
