@@ -1,3 +1,5 @@
+# Kết quả bài test.
+
 Github: https://github.com/nguyentrongvy151995/data-hub
 
 ## Bài 1 – Service xử lý message Kafka
