@@ -205,13 +205,14 @@ Mục tiêu: lưu event thô + trạng thái xử lý để support ingest idemp
 
 1. **Unique `eventId`** để chống lưu trùng khi duplicate từ Kafka/REST.
 2. **`status` riêng** để theo dõi lifecycle xử lý và hỗ trợ retry/failure analysis.
-3. **Tách `createdAt` và `updatedAt`** để phân biệt thời gian nghiệp vụ và thời gian xử lý hệ thống.
-4. **Compound index strategy**
+3. **Giữ `eventType` và `sourceSystem` ở top-level field** để phục vụ filter/report theo loại event và nguồn phát sinh, đồng thời hỗ trợ đánh index hiệu quả hơn so với query sâu trong `payload`.
+4. **Tách `createdAt` và `updatedAt`** để phân biệt thời gian nghiệp vụ và thời gian xử lý hệ thống.
+5. **Compound index strategy**
    - `eventType + sourceSystem + status + createdAt`: phục vụ query search gộp/report.
    - `sourceSystem + status + createdAt`: phục vụ query riêng theo source+status có sort thời gian.
    - `status + createdAt`: phục vụ query riêng theo status có sort thời gian.
    - `createdAt`: phục vụ filter/sort theo business time toàn hệ thống.
-5. **Lưu `payload` dạng string** để giữ nguyên raw event, tránh coupling chặt vào schema payload động từ upstream.
+6. **Lưu `payload` dạng string** để giữ nguyên raw event.
 
 ## 4. Design Decisions
 

@@ -158,26 +158,26 @@ Dựa vào những ý trên để phân tích các câu query trên:
 
 ## Thiết kế Index để tối ưu hệ thống
 
-1. db.transactions.createIndex({ user_id: 1, created_at: -1 })
+1. **db.transactions.createIndex({ user_id: 1, created_at: -1 })**
     * Lý do: cover cả filter theo user_id và sort created_at desc.
     * Tối ưu: 
         - Query 2 trực tiếp. 
         - Query 1 cũng hưởng lợi ở bước lọc theo user_id tránh COLLSPAN toàn bảng.
         - Query 4 ($match user_id + $lookup)
 
-2. db.transactions.createIndex({ created_at: -1 })
+2. **db.transactions.createIndex({ created_at: -1 })**
     * Lý do: nhiều báo cáo lọc thống kê theo thời gian.
     * Tối ưu: Query 3 khi refactor có $match thời gian.
 
-3. db.transactions.createIndex({ status: 1, created_at: -1 })
+3. **db.transactions.createIndex({ status: 1, created_at: -1 })**
     * Lý do:  nhiều báo cáo lọc theo status và thống kê theo thời gian.
     * Tối ưu: Query 3 khi refactor có $match thời gian và status.
 
-4. db.transactions.createIndex({ user_id: 1, status: 1, created_at: -1 })
+4. **db.transactions.createIndex({ user_id: 1, status: 1, created_at: -1 })**
     * Lý do: nhiều báo cáo lọc theo user_id status và thống kê theo thời gian.
     * Tối ưu: Query 3 khi refactor có $match user_id, status và thời gian.
 
-5. db.transaction_logs.createIndex({ transaction_id: 1, created_at: -1 })
+5. **db.transaction_logs.createIndex({ transaction_id: 1, created_at: -1 })**
     * Lý do: $lookup join theo transaction_id; có index để tránh scan toàn bộ transaction_logs cho mỗi transaction, created_at giúp lấy log mới nhất hiệu quả nếu có sort/limit trong lookup pipeline.
     * Tối ưu: Query 4 (join transaction kèm logs), đặc biệt khi thêm $lookup.pipeline có sort/limit log.
 
@@ -304,28 +304,28 @@ db.transactions
 ## Thiết kế Schema tối ưu hơn
 I.  đề xuất:
 
-1. users - transactions: Referencing
+1. **users - transactions: Referencing**
 - Giữ transactions.user_id tham chiếu users._id.
 - Không embed transactions vào user.
 - Lý do: số transaction rất lớn (10M+, tăng 100k/ngày), embed sẽ làm document user phình to, khó scale write/read.
 
-2. transactions - transaction_logs: Referencing (không embed full logs)
+2. **transactions - transaction_logs: Referencing (không embed full logs)**
 - Giữ transaction_logs riêng, join bằng transaction_id.
 - Không embed toàn bộ logs[] vào transaction vì:
     + logs có thể tăng nhiều theo thời gian.
     + dễ vượt kích thước document.
     + query list transaction thường không cần full payload logs.
 
-3. Denormalization trong transactions
+3. **Denormalization trong transactions**
 - Thêm các field summary để giảm $lookup:
     + log_count (tổng số log của transaction)
     + last_event_type (event log mới nhất)
     + last_event_at ( thời điểm log mới nhất)
-- Lợi ích: 
+- **Lợi ích:**
     + API list/detail transaction thường chỉ cần “trạng thái hiện tại”, không cần full mảng logs.
     + Không cần $lookup mỗi lần => giảm join, giảm RAM/CPU/network.
 
-4. Denormalization cho báo cáo (nên có collection summary)
+4. **Denormalization cho báo cáo (nên có collection summary)**
 - Tạo collection daily_transaction_summary:
     + { day, total_amount, success_total, failed_total, tx_count }
 - Có thể thêm user_daily_summary:

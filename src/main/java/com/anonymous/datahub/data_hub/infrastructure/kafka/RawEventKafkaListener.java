@@ -89,13 +89,13 @@ public class RawEventKafkaListener {
             try {
                 parsedEvent = objectMapper.readValue(message, KafkaEventDto.class);
                 validate(parsedEvent);
-                // simulateRandomFailureIfEnabled(parsedEvent, attempt, totalAttempts, partition, offset);
+                simulateRandomFailureIfEnabled(parsedEvent, attempt, totalAttempts, partition, offset);
 
                 EventIngestionResult claimResult = ingestEventUseCase.claimForProcessing(parsedEvent);
                 if (claimResult == EventIngestionResult.DUPLICATE) {
                     acknowledgment.acknowledge();
                     log.info(
-                            "\n[KAFKA][DUPLICATE-SKIP] eventId={} attempt={}/{} partition={} offset={} mainOffsetAcked=true",
+                            "[KAFKA][DUPLICATE] eventId={} a={}/{} p={} o={} acked",
                             parsedEvent.eventId(),
                             attempt,
                             totalAttempts,
@@ -110,7 +110,7 @@ public class RawEventKafkaListener {
                 // commit offset
                 acknowledgment.acknowledge();
                 log.info(
-                        "[KAFKA][MAIN-SUCCESS] eventId={} result={} attempt={}/{} partition={} offset={}",
+                        "[KAFKA][OK] eventId={} result={} a={}/{} p={} o={}",
                         parsedEvent.eventId(),
                         EventIngestionResult.STORED,
                         attempt,
@@ -125,7 +125,7 @@ public class RawEventKafkaListener {
 
                 if (retryable && attempt < totalAttempts) {
                     log.warn(
-                            "[KAFKA][RETRY] eventId={} attempt={}/{} partition={} offset={} reason={}",
+                            "[KAFKA][RETRY] eventId={} a={}/{} p={} o={} err={}",
                             eventId,
                             attempt,
                             totalAttempts,
@@ -139,7 +139,7 @@ public class RawEventKafkaListener {
 
                 if (!retryable) {
                     log.warn(
-                            "[KAFKA][NON-RETRYABLE] eventId={} attempt={}/{} partition={} offset={} reason={}",
+                            "[KAFKA][BAD] eventId={} a={}/{} p={} o={} err={}",
                             eventId,
                             attempt,
                             totalAttempts,
@@ -153,7 +153,7 @@ public class RawEventKafkaListener {
                     ingestEventUseCase.markFailedAfterRetries(parsedEvent);
                 } else {
                     log.warn(
-                            "[KAFKA][FAILED-PERSIST-SKIPPED] partition={} offset={} reason=event payload is not parseable",
+                            "[KAFKA][SKIP-FAILED-MARK] p={} o={} reason=unparseable-payload",
                             partition,
                             offset
                     );
@@ -173,7 +173,7 @@ public class RawEventKafkaListener {
 
                 acknowledgment.acknowledge();
                 log.error(
-                        "[KAFKA][DLT] eventId={} attempt={}/{} partition={} offset={} mainOffsetAcked=true",
+                        "[KAFKA][DLT] eventId={} a={}/{} p={} o={} acked",
                         eventId,
                         attempt,
                         totalAttempts,
@@ -214,7 +214,7 @@ public class RawEventKafkaListener {
             kafkaTemplate.send(targetTopic, safeEventId, outboundPayload)
                     .get(sendTimeoutMs, TimeUnit.MILLISECONDS);
             log.info(
-                    "[KAFKA][PUBLISH] targetTopic={} eventId={} sourcePartition={} sourceOffset={} retryAttempt={}",
+                    "[KAFKA][PUBLISH] topic={} eventId={} p={} o={} attempt={}",
                     targetTopic,
                     safeEventId,
                     sourcePartition,
