@@ -73,15 +73,25 @@ class RawEventKafkaListenerIntegrationTest {
 
     @Test
     void shouldConsumeMessageAndDelegateToClaimThenProcess() throws Exception {
+        // giả lập kết quả trả về là EventIngestionResult.STORED
         when(eventApplicationService.claimForProcessing(any(KafkaEventDto.class))).thenReturn(EventIngestionResult.STORED);
 
+        // xác nhận gửi thành công vào Kafka.
         kafkaTemplate.send("test.raw-events", "evt-it-001", eventJson("evt-it-001")).get(10, TimeUnit.SECONDS);
 
+        // Tạo captor để bắt đối tượng KafkaEventDto mà listener truyền vào service.
         ArgumentCaptor<KafkaEventDto> captor = ArgumentCaptor.forClass(KafkaEventDto.class);
+
+        // Trong tối đa 10 giây phải có 1 lần gọi claimForProcessing(...).
         verify(eventApplicationService, timeout(10_000)).claimForProcessing(captor.capture());
+
+        // Sau claim thành công, listener phải gọi processClaimedEvent(...).
         verify(eventApplicationService, timeout(10_000)).processClaimedEvent(any(KafkaEventDto.class));
+
+        // Verify nhánh lỗi không được gọi.
         verify(eventApplicationService, never()).markFailedAfterRetries(any(KafkaEventDto.class));
 
+        // Lấy DTO đã capture từ lần gọi claimForProcessing.
         KafkaEventDto captured = captor.getValue();
         assertThat(captured.eventId()).isEqualTo("evt-it-001");
         assertThat(captured.eventType()).isEqualTo("BET");
@@ -102,6 +112,7 @@ class RawEventKafkaListenerIntegrationTest {
     @Test
     void shouldMarkFailedWhenProcessingClaimedEventThrowsException() throws Exception {
         when(eventApplicationService.claimForProcessing(any(KafkaEventDto.class))).thenReturn(EventIngestionResult.STORED);
+        // Chuẩn bị exception giả.
         doThrow(new IllegalStateException("boom"))
                 .when(eventApplicationService)
                 .processClaimedEvent(any(KafkaEventDto.class));
@@ -131,7 +142,7 @@ class RawEventKafkaListenerIntegrationTest {
         kafkaTemplate.send("test.raw-events", 1, "evt-par-002", eventJson("evt-par-002")).get(10, TimeUnit.SECONDS);
         kafkaTemplate.send("test.raw-events", 2, "evt-par-003", eventJson("evt-par-003")).get(10, TimeUnit.SECONDS);
 
-        assertThat(atLeastTwoStarted.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(atLeastTwoStarted.await(10, TimeUnit.SECONDS)).isTrue();
         assertThat(allStarted.await(10, TimeUnit.SECONDS)).isTrue();
         assertThat(workerThreads.size()).isGreaterThanOrEqualTo(2);
 

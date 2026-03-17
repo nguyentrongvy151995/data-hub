@@ -79,19 +79,21 @@ Cách đọc:
 - `infrastructure/kafka`: listener, consumer config, topic config, producer scheduler.
 
 ## 2. Luồng xử lý message
-Muc tieu phan nay: giup dev nhin nhanh end-to-end flow, bao gom ca producer tao fake data cho dev/test va consumer xu ly message.
+Mục tiêu phần này: giúp dev nhin nhanh end-to-end flow, bao gồm cả producer tạo fake data cho consumer xử lý messages.
 
 
 ### 2.1 Luồng Kafka produce (fake data scheduler)
 
 Component tao du lieu fake: `RawEventKafkaProducerScheduler`.
 
+**Mục đích**: Tạo data fake cho consumer
+
 Cach producer bắn fake data:
 - Chay dinh ky theo scheduler (initial delay + interval).
 - Moi chu ky gui 1 batch message vao topic theo config `app.kafka.topic.raw-events` (default: `data-hub.user-orders`; DLT: `data-hub.user-orders.DLT`).
-- Moi message deu set Kafka key = `eventId` de phan bo partition on dinh theo key.
+- Mỗi message đề set Kafka key = `eventId` để phân bổ partition ổn định theo key.
 
-Payload mau producer tao ra:
+Payload producer tạo ra:
 ```json
 {
   "eventId": "",
